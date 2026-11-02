@@ -1,17 +1,388 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Field, TextInput } from "@/components/ui/field";
 import { EmptyState, ErrorState, PageSkeleton, Pill } from "@/components/ui/feedback";
 import { formatDate, formatNumber, roleLabel } from "@/lib/format";
+import { scrapoAuthHeaders } from "@/lib/auth/auth-headers";
 import { usePrototype } from "@/lib/prototype/session";
 import { createClient } from "@/lib/supabase/client";
 import { finalizeMonthlyWinners, loadAdmin, updateListingStatus, updateRecyclerStatus, verifySanitisationRecord } from "@/lib/supabase/records";
 import { useLive } from "@/lib/supabase/use-live";
 import { initialSanitisationRecords, pickups } from "@/lib/mock/data";
 import { AdminTrackerOverview } from "@/components/tracker/admin-tracker-overview";
+import type { VerificationApplication } from "@/lib/types";
+
+function AdminFairAccessQueue({
+  actorId,
+  actorName,
+}: {
+  actorId: string;
+  actorName: string;
+}) {
+  const [applications, setApplications] = useState<
+    Array<{
+      id: string;
+      studentName: string;
+      campus: string;
+      course: string;
+      category: string;
+      educationalNeed: string;
+      status: string;
+      reviewFlags: string[];
+      submittedAt: string;
+      hasHouseholdKey?: boolean;
+    }>
+  >([]);
+  const [allocations, setAllocations] = useState<
+    Array<{ id: string; studentName: string; deviceLabel: string; allocatedAt: string; category: string }>
+  >([]);
+  const [note, setNote] = useState<Record<string, string>>({});
+  const [deviceLabel, setDeviceLabel] = useState<Record<string, string>>({});
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  async function load() {
+    fetch("/api/fairaccess?admin=1", { headers: await scrapoAuthHeaders() })
+      .then(async (res) => {
+        const body = await res.json();
+        setApplications(body.applications ?? []);
+        setAllocations(body.allocations ?? []);
+      })
+      .catch(() => {
+        setApplications([]);
+        setAllocations([]);
+      });
+  }
+
+  useEffect(() => {
+    void load();
+  }, [actorId, actorName]);
+
+  async function decide(applicationId: string, decision: "approved" | "rejected") {
+    setError("");
+    setMessage("");
+    const res = await fetch("/api/fairaccess", {
+      method: "PATCH",
+      headers: await scrapoAuthHeaders(),
+      body: JSON.stringify({
+        applicationId,
+        decision,
+        reviewNote: note[applicationId] || "",
+        deviceLabel: deviceLabel[applicationId] || "",
+      }),
+    });
+    const body = await res.json();
+    if (!res.ok || !body.success) {
+      setError(body.error || "Could not update the application.");
+      return;
+    }
+    setMessage(`FairAccess application ${decision}.`);
+    load();
+  }
+
+  const open = applications.filter((row) => row.status === "pending" || row.status === "flagged");
+
+  return (
+    <section id="fairaccess" className="scroll-mt-24 space-y-4">
+      <div>
+        <h2 className="text-2xl font-medium">FairAccess student assistance</h2>
+        <p className="text-xs text-muted">
+          Review verification-linked applications, previous allocations, and repeat flags. Household tokens stay private and are never shown in full.
+        </p>
+      </div>
+      {message ? <p className="text-sm font-semibold text-olive">{message}</p> : null}
+      {error ? <p className="text-sm text-danger">{error}</p> : null}
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <h3 className="text-base font-semibold">Allocation history</h3>
+          {allocations.length === 0 ? (
+            <p className="mt-2 text-sm text-muted">No subsidised allocations yet.</p>
+          ) : (
+            <ul className="mt-3 space-y-2">
+              {allocations.map((row) => (
+                <li key={row.id} className="text-sm text-muted">
+                  <span className="font-semibold text-ink">{row.studentName}</span> · {row.deviceLabel} ·{" "}
+                  {new Date(row.allocatedAt).toLocaleDateString()}
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+        <Card>
+          <h3 className="text-base font-semibold">Open queue</h3>
+          <p className="mt-2 text-sm text-muted">{open.length} pending or flagged applications.</p>
+        </Card>
+      </div>
+
+      {open.length === 0 ? (
+        <EmptyState title="No FairAccess applications waiting" text="Student assistance submissions appear here for approval or rejection." />
+      ) : (
+        <ul className="space-y-3">
+          {open.map((row) => (
+            <li key={row.id}>
+              <Card className="space-y-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="text-base font-semibold">{row.studentName}</h3>
+                  <Pill tone={row.status === "flagged" ? "danger" : "paper"}>{row.status}</Pill>
+                  <Pill tone="paper">{row.category}</Pill>
+                  {row.reviewFlags.map((flag) => (
+                    <Pill key={flag} tone="paper">{flag.replaceAll("_", " ")}</Pill>
+                  ))}
+                </div>
+                <p className="text-sm text-muted">
+                  {row.course} · {row.campus}
+                  {row.hasHouseholdKey ? " · household token on file (private)" : ""}
+                </p>
+                <p className="text-sm text-ink">{row.educationalNeed}</p>
+                <Field label="Allocated device label" htmlFor={`fa-device-${row.id}`}>
+                  <TextInput
+                    id={`fa-device-${row.id}`}
+                    value={deviceLabel[row.id] || ""}
+                    onChange={(event) => setDeviceLabel((prev) => ({ ...prev, [row.id]: event.target.value }))}
+                    placeholder="e.g. Refurbished ThinkPad T480"
+                  />
+                </Field>
+                <Field label="Review note" htmlFor={`fa-note-${row.id}`}>
+                  <TextInput
+                    id={`fa-note-${row.id}`}
+                    value={note[row.id] || ""}
+                    onChange={(event) => setNote((prev) => ({ ...prev, [row.id]: event.target.value }))}
+                    placeholder="Required when rejecting"
+                  />
+                </Field>
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="olive" onClick={() => decide(row.id, "approved")}>
+                    Approve allocation
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => decide(row.id, "rejected")}>
+                    Reject
+                  </Button>
+                </div>
+              </Card>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function AdminVerifyQueue({
+  actorId,
+  actorName,
+}: {
+  actorId: string;
+  actorName: string;
+}) {
+  const [rows, setRows] = useState<Array<VerificationApplication & { hasEvidence?: boolean }>>([]);
+  const [note, setNote] = useState<Record<string, string>>({});
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  async function load() {
+    fetch("/api/verify?pending=1", { headers: await scrapoAuthHeaders() })
+      .then(async (res) => {
+        const body = await res.json();
+        setRows(body.applications ?? []);
+      })
+      .catch(() => setRows([]));
+  }
+
+  useEffect(() => {
+    void load();
+  }, [actorId, actorName]);
+
+  async function decide(applicationId: string, decision: "verified" | "rejected") {
+    setError("");
+    setMessage("");
+    const res = await fetch("/api/verify", {
+      method: "PATCH",
+      headers: await scrapoAuthHeaders(),
+      body: JSON.stringify({
+        applicationId,
+        decision,
+        reviewNote: note[applicationId] || "",
+      }),
+    });
+    const body = await res.json();
+    if (!res.ok || !body.success) {
+      setError(body.error || "Could not update the application.");
+      return;
+    }
+    setMessage(`Application ${decision}.`);
+    load();
+  }
+
+  return (
+    <section id="scrapo-verify" className="scroll-mt-24 space-y-4">
+      <div>
+        <h2 className="text-2xl font-medium">Scrapo Verify queue</h2>
+        <p className="text-xs text-muted">
+          Review student, donor, and recycler applications. Enrolment notes stay private. Users cannot change their own status.
+        </p>
+      </div>
+      {message ? <p className="text-sm font-semibold text-olive">{message}</p> : null}
+      {error ? <p className="text-sm text-danger">{error}</p> : null}
+      {rows.length === 0 ? (
+        <EmptyState title="No pending applications" text="New Scrapo Verify submissions appear here for admin review." />
+      ) : (
+        <ul className="space-y-3">
+          {rows.map((row) => (
+            <li key={row.id}>
+              <Card className="space-y-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="text-base font-semibold">{row.userName}</h3>
+                  <Pill tone="paper">{row.role}</Pill>
+                  <Pill tone="paper">{row.kind.replace("_", " ")}</Pill>
+                  <Pill>{row.status}</Pill>
+                </div>
+                <p className="text-sm text-muted">
+                  {[row.email, row.phone, row.institution, row.course, row.studentId, row.orgName, row.license]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </p>
+                {row.hasEvidence ? <p className="text-xs text-muted">Enrolment evidence note on file (not shown publicly).</p> : null}
+                <Field label="Review note" htmlFor={`vf-note-${row.id}`}>
+                  <TextInput
+                    id={`vf-note-${row.id}`}
+                    value={note[row.id] || ""}
+                    onChange={(event) => setNote((prev) => ({ ...prev, [row.id]: event.target.value }))}
+                    placeholder="Required when rejecting"
+                  />
+                </Field>
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="olive" onClick={() => decide(row.id, "verified")}>
+                    Approve
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => decide(row.id, "rejected")}>
+                    Reject
+                  </Button>
+                </div>
+              </Card>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function AdminListingReportsQueue({
+  actorId,
+  actorName,
+}: {
+  actorId: string;
+  actorName: string;
+}) {
+  const [rows, setRows] = useState<
+    Array<{
+      id: string;
+      listingId: string;
+      listingTitle: string;
+      reason: string;
+      details?: string;
+      status: string;
+      reporterName?: string;
+      createdAt: string;
+    }>
+  >([]);
+  const [note, setNote] = useState<Record<string, string>>({});
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  async function load() {
+    fetch("/api/accountability/reports?admin=1", {
+      headers: await scrapoAuthHeaders(),
+    })
+      .then(async (res) => {
+        const body = await res.json();
+        setRows(body.reports ?? []);
+      })
+      .catch(() => setRows([]));
+  }
+
+  useEffect(() => {
+    void load();
+  }, [actorId, actorName]);
+
+  async function decide(reportId: string, decision: "resolved" | "dismissed") {
+    setError("");
+    setMessage("");
+    const res = await fetch("/api/accountability/reports", {
+      method: "PATCH",
+      headers: await scrapoAuthHeaders(),
+      body: JSON.stringify({
+        reportId,
+        decision,
+        resolutionNote: note[reportId] || "",
+      }),
+    });
+    const body = await res.json();
+    if (!res.ok || !body.success) {
+      setError(body.error || "Could not update the report.");
+      return;
+    }
+    setMessage(`Report ${decision}.`);
+    load();
+  }
+
+  const open = rows.filter((row) => row.status === "open" || row.status === "reviewing");
+
+  return (
+    <section id="accountability-reports" className="scroll-mt-24 space-y-4">
+      <div>
+        <h2 className="text-2xl font-medium">Suspicious listing reports</h2>
+        <p className="text-xs text-muted">
+          Accountability queue for marketplace flags. Reports are append-only; admins resolve or dismiss them.
+        </p>
+      </div>
+      {message ? <p className="text-sm font-semibold text-olive">{message}</p> : null}
+      {error ? <p className="text-sm text-danger">{error}</p> : null}
+      {open.length === 0 ? (
+        <EmptyState title="No open listing reports" text="Buyer and student flags appear here for review." />
+      ) : (
+        <ul className="space-y-3">
+          {open.map((row) => (
+            <li key={row.id}>
+              <Card className="space-y-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="text-base font-semibold">{row.listingTitle}</h3>
+                  <Pill tone="paper">{row.reason}</Pill>
+                  <Pill>{row.status}</Pill>
+                </div>
+                <p className="text-sm text-muted">
+                  {row.reporterName ? `Reported by ${row.reporterName} · ` : ""}
+                  {new Date(row.createdAt).toLocaleString()}
+                </p>
+                {row.details ? <p className="text-sm text-ink">{row.details}</p> : null}
+                <Field label="Resolution note" htmlFor={`lr-note-${row.id}`}>
+                  <TextInput
+                    id={`lr-note-${row.id}`}
+                    value={note[row.id] || ""}
+                    onChange={(event) => setNote((prev) => ({ ...prev, [row.id]: event.target.value }))}
+                    placeholder="Optional note for the audit trail"
+                  />
+                </Field>
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="olive" onClick={() => decide(row.id, "resolved")}>
+                    Resolve
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => decide(row.id, "dismissed")}>
+                    Dismiss
+                  </Button>
+                </div>
+              </Card>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
 
 export function AdminView() {
   const live = useLive("admin", () => loadAdmin(createClient()));
@@ -104,6 +475,10 @@ export function AdminView() {
           </ul>
         )}
       </section>
+
+      <AdminVerifyQueue actorId={profile.id || profile.name} actorName={profile.name} />
+      <AdminFairAccessQueue actorId={profile.id || profile.name} actorName={profile.name} />
+      <AdminListingReportsQueue actorId={profile.id || profile.name} actorName={profile.name} />
 
       <section id="recyclers" className="scroll-mt-24 space-y-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

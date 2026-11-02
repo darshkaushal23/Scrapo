@@ -5,10 +5,24 @@ import {
   normalizePhoneNumber,
   saveUserProfile,
 } from "@/lib/auth/phone-service";
+import { sanitizeSelfAssignedRole } from "@/lib/auth/identity";
 import type { Role } from "@/lib/types";
+
+const isProd = process.env.NODE_ENV === "production" || process.env.SCRAPO_PRODUCTION === "1";
 
 export async function POST(request: Request) {
   try {
+    if (isProd && process.env.SCRAPO_ALLOW_PHONE_OTP_FALLBACK !== "1") {
+      return Response.json(
+        {
+          error:
+            "Prototype phone OTP gateway is disabled in production. Use Firebase Phone Authentication from the client.",
+          code: "USE_FIREBASE_PHONE_AUTH",
+        },
+        { status: 503 },
+      );
+    }
+
     const body = (await request.json()) as { phone?: unknown };
     const phone = typeof body.phone === "string" ? body.phone.trim() : "";
 
@@ -32,8 +46,8 @@ export async function POST(request: Request) {
       originBoundSms: res.originBoundSms,
       isExistingUser: Boolean(existingUser),
       user: existingUser,
-      // Pass code in response for testing/local development
-      code: res.code,
+      // Never return OTP codes outside local/dev.
+      ...(isProd ? {} : { code: res.code }),
     });
   } catch (err) {
     return Response.json(
@@ -45,6 +59,16 @@ export async function POST(request: Request) {
 
 export async function PUT(request: Request) {
   try {
+    if (isProd && process.env.SCRAPO_ALLOW_PHONE_OTP_FALLBACK !== "1") {
+      return Response.json(
+        {
+          error: "Prototype phone OTP verification is disabled in production. Use Firebase Phone Authentication.",
+          code: "USE_FIREBASE_PHONE_AUTH",
+        },
+        { status: 503 },
+      );
+    }
+
     const body = (await request.json()) as {
       phone?: unknown;
       code?: unknown;
@@ -55,7 +79,7 @@ export async function PUT(request: Request) {
     const phone = typeof body.phone === "string" ? body.phone.trim() : "";
     const code = typeof body.code === "string" ? body.code.trim() : "";
     const name = typeof body.name === "string" ? body.name.trim() : "";
-    const role = typeof body.role === "string" ? (body.role.trim() as Role) : "donor";
+    const role = sanitizeSelfAssignedRole(body.role);
     const city = typeof body.city === "string" ? body.city.trim() : "Bengaluru";
 
     if (!phone || !code) {
@@ -70,7 +94,6 @@ export async function PUT(request: Request) {
     const norm = normalizePhoneNumber(phone);
     let user = await findUserByPhone(phone);
 
-    // If new user and name provided, persist real profile
     if (!user && name) {
       user = await saveUserProfile({
         name,
@@ -81,10 +104,14 @@ export async function PUT(request: Request) {
     }
 
     return Response.json({
-      success: true,
       valid: true,
-      phoneNumber: norm,
-      user,
+      user: user || {
+        id: `phone_${Date.now()}`,
+        name: name || "Verified Member",
+        role: role as Role,
+        city,
+        phone: norm,
+      },
     });
   } catch (err) {
     return Response.json(

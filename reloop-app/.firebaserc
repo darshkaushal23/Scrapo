@@ -1,5 +1,7 @@
 {
   "projects": {
     "default": "scrapo-613a1"
-  }
+  },
+  "targets": {},
+  "etags": {}
 }

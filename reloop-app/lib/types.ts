@@ -26,7 +26,36 @@ export type PickupStatus =
   | "pickup_failed"
   | "awaiting_rescheduling";
 
+export type VerificationStatus = "pending" | "verified" | "rejected" | "expired";
+
+export type VerificationKind = "contact" | "student" | "recycler" | "donor_ownership";
+
+export type VerificationApplication = {
+  id: string;
+  userId: string;
+  userName: string;
+  role: Role;
+  kind: VerificationKind;
+  status: VerificationStatus;
+  email?: string;
+  phone?: string;
+  institution?: string;
+  course?: string;
+  studentId?: string;
+  enrolmentEvidence?: string;
+  orgName?: string;
+  license?: string;
+  ownershipDeclared?: boolean;
+  reviewNote?: string;
+  reviewerId?: string;
+  reviewerName?: string;
+  submittedAt: string;
+  reviewedAt?: string;
+  expiresAt?: string;
+};
+
 export type DemoProfile = {
+  id?: string;
   name: string;
   email: string;
   phone?: string;
@@ -36,6 +65,7 @@ export type DemoProfile = {
   pointsLifetime: number;
   rank: number;
   personalized: boolean;
+  verificationStatus?: VerificationStatus;
 };
 
 export type DeviceRecord = {
@@ -64,6 +94,8 @@ export type PickupRecord = {
   id: string;
   trackingId: string;
   deviceId: string;
+  /** Durable donor / owner UID — used for address privacy and certificates. */
+  donorId?: string;
   deviceName: string;
   description: string;
   category: Category;
@@ -101,6 +133,42 @@ export type AssistanceRequest = {
   category: Category;
   status: "open" | "matched" | "fulfilled";
   note: string;
+};
+
+export type FairAccessStatus = "pending" | "flagged" | "approved" | "rejected";
+
+export type FairAccessApplication = {
+  id: string;
+  studentId: string;
+  studentName: string;
+  campus: string;
+  course: string;
+  category: Category;
+  educationalNeed: string;
+  devicePreference?: string;
+  /** Private household token for admin review only — never shown publicly. */
+  householdKey?: string;
+  acceptsResaleRestriction: boolean;
+  status: FairAccessStatus;
+  reviewFlags: string[];
+  reviewNote?: string;
+  reviewerId?: string;
+  reviewerName?: string;
+  submittedAt: string;
+  reviewedAt?: string;
+  allocationId?: string;
+};
+
+export type FairAccessAllocation = {
+  id: string;
+  applicationId: string;
+  studentId: string;
+  studentName: string;
+  category: Category;
+  deviceLabel: string;
+  allocatedAt: string;
+  expiresAt: string;
+  resaleRestricted: true;
 };
 
 export type LeaderboardEntry = {

@@ -170,9 +170,15 @@ export async function loadAssistance(supabase: Db): Promise<AssistanceRequest[]>
 
 export async function loadPickups(supabase: Db): Promise<PickupRecord[]> {
   const { data: auth } = await supabase.auth.getUser();
+  const { data: viewerProfile } = auth.user
+    ? await supabase.from("profiles").select("role").eq("id", auth.user.id).maybeSingle()
+    : { data: null };
+  const viewerRole = (viewerProfile?.role as string | undefined) || "";
+  const canSeeAllAddresses = viewerRole === "admin" || viewerRole === "recycler";
+
   const { data, error } = await supabase
     .from("pickups")
-    .select("id, tracking_id, device_id, recycler_id, address, city, collection_date, status, created_at")
+    .select("id, tracking_id, device_id, donor_id, recycler_id, address, city, collection_date, status, created_at")
     .order("created_at", { ascending: false });
   if (error) {
     if (/permission|jwt/i.test(error.message)) return [];
@@ -213,14 +219,20 @@ export async function loadPickups(supabase: Db): Promise<PickupRecord[]> {
     const device = deviceById.get(row.device_id);
     const recycler = row.recycler_id ? recyclerById.get(row.recycler_id) : undefined;
     const status = asStatus(row.status);
+    const donorId = row.donor_id || device?.owner_id;
+    const isOwner = Boolean(auth.user && donorId === auth.user.id);
+    const rawAddress = addressById.get(row.id) || row.address || "Shared after a partner accepts";
+    // Buyers/students never receive previous-owner street addresses in the API payload.
+    const address = isOwner || canSeeAllAddresses ? rawAddress : `Area in ${row.city} · Full street address restricted`;
     return {
       id: row.id,
       trackingId: row.tracking_id,
       deviceId: row.device_id,
+      donorId,
       deviceName: device ? `${device.brand} ${device.model}`.trim() : "Device",
       description: device?.description ?? "",
       category: asCategory(device?.category ?? "accessory"),
-      address: addressById.get(row.id) || "Shared after a partner accepts",
+      address,
       city: row.city,
       collectionDate: row.collection_date,
       status,
@@ -232,9 +244,7 @@ export async function loadPickups(supabase: Db): Promise<PickupRecord[]> {
       },
       timeline: buildTimeline(status, row.created_at, eventsByPickup.get(row.id) ?? []),
       showCertificate:
-        Boolean(auth.user) &&
-        device?.owner_id === auth.user?.id &&
-        (status === "donated" || status === "completed"),
+        isOwner && (status === "donated" || status === "completed"),
       source: "session",
     };
   });
@@ -432,6 +442,7 @@ export async function createDevicePickup(
     .from("pickups")
     .insert({
       device_id: device.id,
+      donor_id: auth.user.id,
       address: "Address to be confirmed with the donor",
       city: input.city || "Not set",
       status: "requested",

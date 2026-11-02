@@ -22,52 +22,48 @@ const workingStates = Object.keys(workingLabel) as WorkingStatus[];
 
 type Photo = { name: string; url: string };
 
+function hasBackupSessionName() {
+  if (typeof window === "undefined") return false;
+  try {
+    const backup =
+      window.localStorage.getItem("scrapo_account_session") ||
+      window.localStorage.getItem("reloop.prototype.v1");
+    if (!backup) return false;
+    const parsed = JSON.parse(backup) as { name?: string; profile?: { name?: string } };
+    const savedName = parsed?.name || parsed?.profile?.name;
+    return Boolean(savedName && savedName.trim().length > 0);
+  } catch {
+    return false;
+  }
+}
+
 export function ListingView({ initialCategory }: { initialCategory?: Category }) {
   const router = useRouter();
   const { ready, profile, addDraft } = usePrototype();
-  const [allowed, setAllowed] = useState(false);
+  const [authFallback, setAuthFallback] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [saving, setSaving] = useState(false);
+  const named = Boolean(profile?.name?.trim());
+  const allowed = named || hasBackupSessionName() || authFallback;
 
   useEffect(() => {
-    if (!ready) return;
-
-    // 1. If user is logged into Scrapo account, allow access immediately
-    if (profile?.name && profile.name.trim().length > 0) {
-      setAllowed(true);
-      return;
-    }
-
-    // 2. Check localStorage backup if profile hydration is in progress
-    try {
-      const backup =
-        window.localStorage.getItem("scrapo_account_session") ||
-        window.localStorage.getItem("reloop.prototype.v1");
-      if (backup) {
-        const parsed = JSON.parse(backup);
-        const savedName = parsed?.name || parsed?.profile?.name;
-        if (savedName && typeof savedName === "string" && savedName.trim().length > 0) {
-          setAllowed(true);
-          return;
-        }
-      }
-    } catch {}
-
-    // 3. Fallback: check Supabase user
+    if (!ready || named || hasBackupSessionName()) return;
+    let cancelled = false;
     const supabase = createClient();
     supabase.auth
       .getUser()
       .then(({ data }) => {
-        if (data.user) {
-          setAllowed(true);
-        } else {
-          router.replace("/login");
-        }
+        if (cancelled) return;
+        if (data.user) setAuthFallback(true);
+        else router.replace("/login");
       })
       .catch(() => {
-        router.replace("/login");
+        if (!cancelled) router.replace("/login");
       });
-  }, [ready, profile?.name, router]);
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, named, router]);
   const [category, setCategory] = useState<Category | "">(initialCategory ?? "");
   const [brand, setBrand] = useState("");
   const [model, setModel] = useState("");
@@ -155,6 +151,10 @@ export function ListingView({ initialCategory }: { initialCategory?: Category })
 
   async function requestPickup() {
     if (!estimate || !category || !condition || !working || saving) return;
+    if (profile.role !== "admin" && profile.verificationStatus !== "verified") {
+      setSaveError("Complete Scrapo Verify and wait for approval before listing a device.");
+      return;
+    }
     setSaving(true);
     setSaveError("");
     try {
@@ -182,6 +182,7 @@ export function ListingView({ initialCategory }: { initialCategory?: Category })
           id: localId,
           trackingId: `RL-${trackingNum}`,
           deviceId: `dev-${Date.now().toString(36)}`,
+          donorId: profile.id || undefined,
           deviceName: devName,
           description: description.trim(),
           category,
@@ -228,6 +229,14 @@ export function ListingView({ initialCategory }: { initialCategory?: Category })
           <p className="mt-2 max-w-xl text-sm leading-6 text-muted">
             Photos stay in this browser session. The estimate is a formula on the page, not an appraisal.
           </p>
+          {profile.role !== "admin" && profile.verificationStatus !== "verified" ? (
+            <p className="mt-3 rounded-2xl border border-line bg-paper px-4 py-3 text-sm text-muted">
+              Scrapo Verify is required before a listing can be submitted.{" "}
+              <a href="/verify" className="font-semibold text-olive">
+                Open verification
+              </a>
+            </p>
+          ) : null}
         </div>
 
         <PrivacyNotice />

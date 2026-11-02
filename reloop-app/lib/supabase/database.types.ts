@@ -49,6 +49,7 @@ export type Database = {
         id: string;
         tracking_id: string;
         device_id: string;
+        donor_id: string | null;
         recycler_id: string | null;
         address: string;
         city: string;

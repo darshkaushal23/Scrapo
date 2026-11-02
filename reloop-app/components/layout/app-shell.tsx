@@ -12,16 +12,22 @@ import type { Role } from "@/lib/types";
 
 const donorNav = [
   { href: "/dashboard", label: "Overview" },
+  { href: "/verify", label: "Scrapo Verify" },
   { href: "/devices/new", label: "List a device" },
   { href: "/pickups", label: "Pickups" },
   { href: "/marketplace", label: "Marketplace" },
   { href: "/rewards", label: "Rewards" },
 ];
 
-const recyclerNav = [{ href: "/recycler", label: "Assigned pickups" }];
+const recyclerNav = [
+  { href: "/verify", label: "Scrapo Verify" },
+  { href: "/recycler", label: "Assigned pickups" },
+];
 
 const adminNav = [
   { href: "/admin#users", label: "Users" },
+  { href: "/admin#scrapo-verify", label: "Scrapo Verify" },
+  { href: "/admin#fairaccess", label: "FairAccess" },
   { href: "/admin#recyclers", label: "Recyclers" },
   { href: "/admin#trustshield", label: "TrustShield" },
   { href: "/admin#donations", label: "Donations" },

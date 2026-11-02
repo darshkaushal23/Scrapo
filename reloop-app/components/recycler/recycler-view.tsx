@@ -288,7 +288,7 @@ function InspectionForm({
 }
 
 export function RecyclerView() {
-  const { inspections, saveInspection, sanitisations, submitSanitisation, admin } = usePrototype();
+  const { inspections, saveInspection, sanitisations, submitSanitisation, admin, profile } = usePrototype();
   const live = useLive("recycler", async () => {
     const supabase = createClient();
     const pickups = (await loadPickups(supabase)).filter((pickup) => pickup.recycler.name !== "Awaiting assignment");
@@ -311,12 +311,24 @@ export function RecyclerView() {
   );
   const active = visible.find((pickup) => pickup.id === activeId) ?? visible[0];
 
-  // Recycler Verification Status: Clearly distinguish verified and pending profiles
-  const recyclerStatus = admin.recyclerStatus["rc-1"] ?? "verified";
-  const isVerified = recyclerStatus === "verified";
+  // Scrapo Verify + legacy recyclerStatus overlay
+  const recyclerStatus = admin.recyclerStatus["rc-1"] ?? profile.verificationStatus ?? "pending";
+  const isVerified = profile.verificationStatus === "verified" || recyclerStatus === "verified";
 
   if (live.phase === "loading") return <PageSkeleton cards={2} />;
   if (live.phase === "error") return <ErrorState title="Assigned pickups did not load" text={live.message} onRetry={live.retry} />;
+
+  if (!isVerified) {
+    return (
+      <div className="mx-auto max-w-3xl space-y-4">
+        <EmptyState
+          title="Recycler verification required"
+          text="Complete Scrapo Verify and wait for an administrator to approve your organisation before handling assigned pickups."
+          action={<Button href="/verify">Open Scrapo Verify</Button>}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">

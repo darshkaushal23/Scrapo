@@ -5,9 +5,9 @@
  */
 
 import { adminUsers } from "../mock/data.ts";
-import type { Role, DemoProfile } from "../types.ts";
+import type { Role } from "../types.ts";
 import { getFirebaseDb } from "../firebase/client.ts";
-import { doc, getDoc, setDoc, serverTimestamp, collection, getDocs } from "firebase/firestore";
+import { doc, setDoc, serverTimestamp, collection, getDocs } from "firebase/firestore";
 
 export type StoredAccount = {
   id: string;
@@ -69,7 +69,9 @@ export async function createSimpleAccount(params: {
 }> {
   const cleanName = params.name.trim();
   const cleanPassword = params.password.trim();
-  const role: Role = params.role || "donor";
+  const requestedRole: Role = params.role || "donor";
+  // Users cannot self-register as administrators.
+  const role: Role = requestedRole === "admin" ? "donor" : requestedRole;
   const city = params.city?.trim() || "Bengaluru";
 
   if (cleanName.length < 2) {
@@ -78,6 +80,10 @@ export async function createSimpleAccount(params: {
 
   if (cleanPassword.length < 4) {
     return { success: false, error: "Please choose a password with at least 4 characters." };
+  }
+
+  if (params.role === "admin") {
+    return { success: false, error: "Administrator accounts cannot be self-registered." };
   }
 
   const key = cleanName.toLowerCase();
@@ -190,6 +196,21 @@ export async function loginSimpleAccount(params: {
   }
 
   return { success: true, user: account };
+}
+
+/**
+ * Server-side account lookup. Used for authorisation — never trust a client-claimed role.
+ */
+export function findAccountByIdOrName(id?: string, name?: string): StoredAccount | null {
+  if (id) {
+    for (const account of registeredAccounts.values()) {
+      if (account.id === id) return account;
+    }
+  }
+  if (name?.trim()) {
+    return registeredAccounts.get(name.trim().toLowerCase()) ?? null;
+  }
+  return null;
 }
 
 /**

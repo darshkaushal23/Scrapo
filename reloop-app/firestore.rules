@@ -177,7 +177,9 @@ service cloud.firestore {
       );
     }
 
-    // Determine if user has permission to read pickup-related events or AI cache
+    // Determine if user has permission to read pickup-related events or AI cache.
+    // Students/buyers do NOT get pickup document access (those include street addresses).
+    // Marketplace listings must be used for student-facing device discovery without donor PII.
     function canAccessPickupContext(pickupId) {
       return isAuthenticated() && (
         isAdmin() ||
@@ -187,10 +189,6 @@ service cloud.firestore {
             (isRecycler() && (
               get(/databases/$(database)/documents/pickups/$(pickupId)).data.get('recycler_id', '') == request.auth.uid ||
               get(/databases/$(database)/documents/pickups/$(pickupId)).data.status == 'requested'
-            )) ||
-            (isStudent() && (
-              get(/databases/$(database)/documents/pickups/$(pickupId)).data.status in ['donated', 'completed'] ||
-              get(/databases/$(database)/documents/pickups/$(pickupId)).data.get('assigned_student_id', '') == request.auth.uid
             ))
           )
         )
@@ -264,6 +262,16 @@ service cloud.firestore {
              (!('assigned_student_id' in data) || data.assigned_student_id == null || (data.assigned_student_id is string && data.assigned_student_id.size() <= 128)) &&
              (!('created_at' in data) || data.created_at is timestamp) &&
              (!('updated_at' in data) || data.updated_at is timestamp);
+    }
+
+    // CleanDevice / TrustShield sanitisation records — evidence is sensitive.
+    function isValidSanitisationRecord(data) {
+      return data.keys().hasAll(['device_id', 'pickup_id', 'status', 'method', 'technician_id', 'verification_status']) &&
+             data.status in ['pending', 'in_progress', 'completed', 'failed'] &&
+             data.verification_status in ['pending_review', 'verified', 'rejected'] &&
+             data.device_id is string && data.pickup_id is string &&
+             data.method is string && data.method.size() >= 1 && data.method.size() <= 200 &&
+             data.technician_id is string;
     }
 
     function isValidTrackingEvent(data) {
@@ -360,7 +368,8 @@ service cloud.firestore {
     }
 
     // 2. Devices
-    // Donors see their devices; recyclers see open intake or assigned hardware; students see offered/donated devices
+    // Donors see their devices; recyclers see open intake or assigned hardware.
+    // Students only see devices explicitly assigned to them — never donor contact fields (not stored here).
     match /devices/{deviceId} {
       allow read: if isAuthenticated() && (
         isAdmin() ||
@@ -369,10 +378,7 @@ service cloud.firestore {
           resource.data.status in ['requested', 'assigned', 'scheduled', 'collected', 'inspected', 'processing'] ||
           resource.data.get('assigned_recycler_id', '') == request.auth.uid
         )) ||
-        (isStudent() && (
-          resource.data.status in ['donated', 'completed'] ||
-          resource.data.get('assigned_student_id', '') == request.auth.uid
-        ))
+        (isStudent() && resource.data.get('assigned_student_id', '') == request.auth.uid)
       );
 
       // Donors list devices in 'requested' state; admins can create directly
@@ -479,6 +485,122 @@ service cloud.firestore {
 
       // Write restricted to admin/server
       allow create, update: if isAdmin() && isValidAiCache(request.resource.data) && request.resource.data.pickup_id == pickupId;
+      allow delete: if isAdmin();
+    }
+
+    // 6c. Scrapo FairAccess applications & allocations
+    // Household keys and student applications are private to owner + admin.
+    match /fairaccess_applications/{applicationId} {
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        resource.data.studentId == request.auth.uid
+      );
+      allow create: if isAuthenticated() &&
+        request.resource.data.studentId == request.auth.uid &&
+        request.resource.data.status in ['pending', 'flagged'] &&
+        request.resource.data.acceptsResaleRestriction == true;
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /fairaccess_allocations/{allocationId} {
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        resource.data.studentId == request.auth.uid
+      );
+      allow create, update, delete: if isAdmin();
+    }
+
+    // 6b. Scrapo Verify applications
+    // Identity / enrolment evidence is private: owner + admin only. Users cannot self-approve.
+    match /verifications/{verificationId} {
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        resource.data.userId == request.auth.uid
+      );
+
+      allow create: if isAuthenticated() &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.status == 'pending' &&
+        request.resource.data.role in ['donor', 'student', 'recycler'] &&
+        request.resource.data.kind in ['contact', 'student', 'recycler', 'donor_ownership'] &&
+        !('reviewerId' in request.resource.data) &&
+        !('reviewerName' in request.resource.data) &&
+        !('reviewedAt' in request.resource.data);
+
+      // Applicants may only resubmit while pending/rejected/expired fields they own remain pending.
+      // Status, reviewer fields, and role are admin-only.
+      allow update: if isAdmin() ||
+        (isAuthenticated() &&
+         resource.data.userId == request.auth.uid &&
+         request.resource.data.userId == resource.data.userId &&
+         request.resource.data.role == resource.data.role &&
+         request.resource.data.status == 'pending' &&
+         resource.data.status in ['pending', 'rejected', 'expired'] &&
+         !request.resource.data.diff(resource.data).affectedKeys().hasAny(['reviewerId', 'reviewerName', 'reviewedAt', 'expiresAt']));
+
+      allow delete: if isAdmin();
+    }
+
+    // 6e. Scrapo CleanDevice — sanitisation + custody (server/Admin SDK preferred)
+    // Clients cannot forge verification_status to verified; only admins may set that.
+    match /device_sanitisation_records/{recordId} {
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        resource.data.technician_id == request.auth.uid ||
+        canAccessPickupContext(resource.data.pickup_id)
+      );
+
+      allow create: if isAuthenticated() &&
+        isValidSanitisationRecord(request.resource.data) &&
+        (isAdmin() || (isRecycler() && request.resource.data.technician_id == request.auth.uid)) &&
+        request.resource.data.verification_status == 'pending_review' &&
+        !('verified_by' in request.resource.data) &&
+        !('verified_at' in request.resource.data);
+
+      allow update: if isAdmin() && isValidSanitisationRecord(request.resource.data) &&
+        request.resource.data.device_id == resource.data.device_id &&
+        request.resource.data.pickup_id == resource.data.pickup_id &&
+        request.resource.data.technician_id == resource.data.technician_id;
+
+      allow delete: if isAdmin();
+    }
+
+    match /device_custody_history/{eventId} {
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        canAccessPickupContext(resource.data.pickup_id)
+      );
+
+      // Append-only custody audit trail
+      allow create: if isAuthenticated() &&
+        request.resource.data.keys().hasAll(['pickup_id', 'device_id', 'action', 'responsible_user_id', 'responsible_role']) &&
+        (isAdmin() || request.resource.data.responsible_user_id == request.auth.uid);
+
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+
+    // 6d. Scrapo Accountability — suspicious listing reports (append-only for reporters)
+    match /listing_reports/{reportId} {
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        resource.data.reporterId == request.auth.uid
+      );
+
+      allow create: if isAuthenticated() &&
+        request.resource.data.reporterId == request.auth.uid &&
+        request.resource.data.status == 'open' &&
+        !('resolverId' in request.resource.data) &&
+        !('resolvedAt' in request.resource.data);
+
+      // Only admins may resolve/dismiss. Silent field edits by reporters are denied.
+      allow update: if isAdmin() &&
+        request.resource.data.reporterId == resource.data.reporterId &&
+        request.resource.data.listingId == resource.data.listingId &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        request.resource.data.status in ['reviewing', 'resolved', 'dismissed'];
+
       allow delete: if isAdmin();
     }
 

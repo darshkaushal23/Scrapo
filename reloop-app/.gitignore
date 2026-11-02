@@ -13,6 +13,9 @@
 # testing
 /coverage
 
+# durable local Trust & Safety fallback store (not for production secrets)
+.data/
+
 # next.js
 /.next/
 /out/

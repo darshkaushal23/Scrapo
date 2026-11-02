@@ -127,7 +127,15 @@ function emptySubscribe() {
 
 type SessionContextValue = PrototypeState & {
   ready: boolean;
-  signIn: (next: Pick<DemoProfile, "name" | "role"> & { email?: string; phone?: string; city?: string }) => void;
+  signIn: (
+    next: Pick<DemoProfile, "name" | "role"> & {
+      id?: string;
+      email?: string;
+      phone?: string;
+      city?: string;
+      verificationStatus?: DemoProfile["verificationStatus"];
+    },
+  ) => void;
   signOut: () => void;
   setRole: (role: Role) => void;
   addDraft: (pickup: PickupRecord) => void;
@@ -189,16 +197,16 @@ export function PrototypeSessionProvider({ children }: { children: ReactNode }) 
           window.localStorage.removeItem("scrapo_account_session");
         } catch {}
         void createClient().auth.signOut();
+        void import("@/lib/firebase/auth-service").then((mod) => mod.signOutFirebase());
         update((snapshot) => ({
           ...snapshot,
           profile: guestProfile,
         }));
       },
-      setRole: (role) =>
-        update((snapshot) => ({
-          ...snapshot,
-          profile: { ...snapshot.profile, role },
-        })),
+      // Roles are assigned at account creation / by admins only — never escalate from the client.
+      setRole: () => {
+        // no-op: prevents privilege escalation via session.setRole("admin")
+      },
       addDraft: (pickup) =>
         update((snapshot) => ({
           ...snapshot,
@@ -229,14 +237,26 @@ export function PrototypeSessionProvider({ children }: { children: ReactNode }) 
           },
         }));
       },
-      setDonationStatus: (id, status) =>
+      setDonationStatus: (id, status) => {
+        if (state.profile.role !== "admin") {
+          throw new Error("Only authorised administrators can update donation release status.");
+        }
+        if (status === "approved") {
+          const san = state.sanitisations[id] ?? initialSanitisationRecords[id];
+          if (!san || san.verificationStatus !== "verified") {
+            throw new Error(
+              "Device cannot be released until TrustShield sanitisation is verified by an administrator.",
+            );
+          }
+        }
         update((snapshot) => ({
           ...snapshot,
           admin: {
             ...snapshot.admin,
             donationStatus: { ...snapshot.admin.donationStatus, [id]: status },
           },
-        })),
+        }));
+      },
       addReward: (event) =>
         update((snapshot) => ({
           ...snapshot,

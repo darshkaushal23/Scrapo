@@ -40,6 +40,7 @@ export const pickups: PickupRecord[] = [
     id: "pk-2041",
     trackingId: "pk-2041",
     deviceId: "dv-2041",
+    donorId: "us-ananya",
     deviceName: "MacBook Air 2020",
     description:
       "Used for class notes and light browsing. Battery lasts about four hours, the charger is included, and there is a small scuff on the lid. Personal files are still on the disk and should be wiped at collection.",
@@ -94,6 +95,7 @@ export const pickups: PickupRecord[] = [
     id: "pk-2033",
     trackingId: "pk-2033",
     deviceId: "dv-2033",
+    donorId: "us-ananya",
     deviceName: "Sony WH-CH520",
     description:
       "Wireless headphones that still pair and play. The left ear cushion is worn, the cable is missing, and they shut off after a few hours. Fine for parts or a student who can replace the pads.",
@@ -148,6 +150,7 @@ export const pickups: PickupRecord[] = [
     id: "pk-1988",
     trackingId: "pk-1988",
     deviceId: "dv-1988",
+    donorId: "us-ananya",
     deviceName: "Dell Latitude 5420",
     description:
       "Office laptop, about five years old, powers on and runs. The keyboard has shine on the keys, the charger is included, and it was used for documents rather than games.",

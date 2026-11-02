@@ -1,16 +1,17 @@
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
+  signInWithCustomToken,
   sendEmailVerification,
   PhoneAuthProvider,
   signInWithCredential,
-  signInWithPhoneNumber,
   RecaptchaVerifier,
   signOut,
   type ConfirmationResult,
   type User,
 } from "firebase/auth";
 import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
+import { sanitizeSelfAssignedRole } from "@/lib/auth/identity";
 import { getFirebaseAuth, getFirebaseDb } from "./client.ts";
 import type { Role, DemoProfile } from "@/lib/types";
 
@@ -189,7 +190,18 @@ export async function sendFirebasePhoneOtp(
     }
   }
 
-  // Server SMS gateway fallback
+  // Prototype server SMS gateway — disabled in production.
+  if (process.env.NODE_ENV === "production" || process.env.SCRAPO_PRODUCTION === "1") {
+    return {
+      success: false,
+      source: "firebase",
+      error:
+        firebaseFailureReason ||
+        "Firebase Phone Auth is required in production. Enable Phone provider and authorized domains in Firebase Console.",
+      firebaseError: firebaseFailureReason,
+    };
+  }
+
   try {
     const res = await fetch("/api/auth/phone/otp", {
       method: "POST",
@@ -316,7 +328,14 @@ export async function confirmFirebasePhoneOtp(
     }
   }
 
-  // 3. Fallback: Server API verification
+  if (process.env.NODE_ENV === "production" || process.env.SCRAPO_PRODUCTION === "1") {
+    return {
+      success: false,
+      error: "Firebase Phone Auth verification failed. Prototype OTP fallback is disabled in production.",
+    };
+  }
+
+  // 3. Dev-only fallback: Server API verification
   try {
     const res = await fetch("/api/auth/phone/otp", {
       method: "PUT",
@@ -338,7 +357,7 @@ export async function confirmFirebasePhoneOtp(
           uid: u?.id || `phone_${Date.now()}`,
           name: u?.name || profileData?.name || "Verified Member",
           phone: phoneNumber,
-          role: (u?.role as Role) || profileData?.role || "donor",
+          role: sanitizeSelfAssignedRole(u?.role || profileData?.role || "donor"),
           city: u?.city || profileData?.city || "Bengaluru",
         },
       };
@@ -358,6 +377,24 @@ export async function confirmFirebasePhoneOtp(
 /**
  * Registers a user with Firebase Email and Password and dispatches a verification email.
  */
+export async function signInWithFirebaseCustomToken(customToken: string): Promise<{
+  success: boolean;
+  user?: User;
+  error?: string;
+}> {
+  const auth = getFirebaseAuth();
+  if (!auth) {
+    return { success: false, error: "Firebase Authentication is not initialized." };
+  }
+  try {
+    const cred = await signInWithCustomToken(auth, customToken);
+    return { success: true, user: cred.user };
+  } catch (err: unknown) {
+    const errObj = err as { message?: string };
+    return { success: false, error: errObj.message || "Could not sign in with custom token." };
+  }
+}
+
 export async function registerFirebaseEmailUser(
   email: string,
   pass: string,
@@ -374,20 +411,24 @@ export async function registerFirebaseEmailUser(
     return { success: false, error: "Firebase Authentication is not initialized." };
   }
 
+  const safeRole = sanitizeSelfAssignedRole(role);
+
   try {
     const cred = await createUserWithEmailAndPassword(auth, email, pass);
     const user = cred.user;
 
-    // Send real verification email via Firebase
-    await sendEmailVerification(user).catch((e) => {
-      console.warn("Email verification send note:", e.message);
-    });
+    // Synthetic @accounts.scrapo.app emails are not mailbox-backed; skip verification mail noise.
+    if (!email.endsWith("@accounts.scrapo.app")) {
+      await sendEmailVerification(user).catch((e) => {
+        console.warn("Email verification send note:", e.message);
+      });
+    }
 
-    // Save profile to Firestore
+    // Save profile to Firestore (never admin via client path)
     await syncUserProfileInFirestore(user.uid, {
       name,
       email: user.email || email,
-      role,
+      role: safeRole,
       city,
     });
 
@@ -496,12 +537,13 @@ export async function syncUserProfileInFirestore(
   },
 ): Promise<{ name: string; email?: string; phone?: string; role: Role; city: string }> {
   const db = getFirebaseDb();
+  const safeRole = sanitizeSelfAssignedRole(data.role);
   const profileRecord = {
     id: uid,
     full_name: data.name,
     email: data.email || null,
     phone: data.phone || null,
-    role: data.role,
+    role: safeRole,
     city: data.city || "Bengaluru",
     points_month: 0,
     points_lifetime: 0,
@@ -514,11 +556,12 @@ export async function syncUserProfileInFirestore(
       const snap = await getDoc(docRef);
       if (snap.exists()) {
         const existing = snap.data();
+        // Never allow clients to change an existing role (including escalate to admin).
         return {
           name: existing.full_name || data.name,
           email: existing.email || data.email,
           phone: existing.phone || data.phone,
-          role: (existing.role as Role) || data.role,
+          role: (existing.role as Role) || safeRole,
           city: existing.city || data.city || "Bengaluru",
         };
       }
@@ -535,7 +578,7 @@ export async function syncUserProfileInFirestore(
     name: data.name,
     email: data.email,
     phone: data.phone,
-    role: data.role,
+    role: safeRole,
     city: data.city || "Bengaluru",
   };
 }

@@ -5,6 +5,12 @@ import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Field, SelectInput, TextInput } from "@/components/ui/field";
+import { accountEmailFromName, sanitizeSelfAssignedRole } from "@/lib/auth/identity";
+import {
+  loginFirebaseEmailUser,
+  registerFirebaseEmailUser,
+  signInWithFirebaseCustomToken,
+} from "@/lib/firebase/auth-service";
 import { homeForRole } from "@/lib/prototype/model";
 import { usePrototype } from "@/lib/prototype/session";
 import type { Role } from "@/lib/types";
@@ -29,34 +35,35 @@ export function LoginForm() {
 
     setLoading(true);
     try {
-      const res = await fetch("/api/auth/account", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), password: password.trim() }),
-      });
-      const data = await res.json();
+      const email = accountEmailFromName(name.trim());
+      const res = await loginFirebaseEmailUser(email, password.trim());
       setLoading(false);
 
-      if (!res.ok || !data.success || !data.user) {
-        setErrors({ general: data.error || "Invalid name or password." });
+      if (!res.success || !res.user) {
+        setErrors({ general: res.error || "Invalid name or password." });
         return;
       }
 
-      const user = data.user;
+      const profile = res.profile;
       signIn({
-        name: user.name,
-        role: user.role,
-        city: user.city || "Bengaluru",
+        id: res.user.uid,
+        name: profile?.name || name.trim(),
+        email: profile?.email || email,
+        role: profile?.role || "donor",
+        city: profile?.city || "Bengaluru",
+        verificationStatus: profile?.verificationStatus,
       });
 
-      router.push(homeForRole(user.role));
-    } catch {
+      router.push(homeForRole(profile?.role || "donor"));
+    } catch (err) {
       setLoading(false);
-      setErrors({ general: "Sign-in error. Please try again." });
+      setErrors({
+        general: err instanceof Error ? err.message : "Sign-in error. Please try again.",
+      });
     }
   }
 
-  function quickFill(presetName: string, presetRole: Role) {
+  function quickFill(presetName: string) {
     setName(presetName);
     setPassword("password123");
     setErrors({});
@@ -66,7 +73,7 @@ export function LoginForm() {
     <div>
       <h1 className="text-4xl font-extrabold tracking-tight">Log in</h1>
       <p className="mt-3 text-sm leading-6 text-muted">
-        Enter your account name and password to access Scrapo.
+        Sign in with your Scrapo account name and password via Firebase Authentication.
       </p>
 
       {errors.general && (
@@ -118,15 +125,15 @@ export function LoginForm() {
         </Button>
       </form>
 
-      {/* Quick Access Demo Profiles */}
       <div className="mt-8 rounded-2xl border border-line bg-card/60 p-4">
-        <p className="text-xs font-bold uppercase tracking-wider text-muted">
-          Quick Demo Login
+        <p className="text-xs font-bold uppercase tracking-wider text-muted">Quick Demo Login</p>
+        <p className="mt-1 text-[11px] text-muted">
+          Demo accounts must exist in Firebase Auth. Create them once via Sign up or Admin bootstrap.
         </p>
         <div className="mt-3 grid grid-cols-2 gap-2">
           <button
             type="button"
-            onClick={() => quickFill("Ananya Iyer", "donor")}
+            onClick={() => quickFill("Ananya Iyer")}
             className="rounded-xl border border-line bg-paper px-3 py-2 text-left text-xs transition hover:border-olive hover:bg-lime/10"
           >
             <div className="font-semibold text-ink">Ananya Iyer</div>
@@ -134,7 +141,7 @@ export function LoginForm() {
           </button>
           <button
             type="button"
-            onClick={() => quickFill("Arjun Deshpande", "student")}
+            onClick={() => quickFill("Arjun Deshpande")}
             className="rounded-xl border border-line bg-paper px-3 py-2 text-left text-xs transition hover:border-olive hover:bg-lime/10"
           >
             <div className="font-semibold text-ink">Arjun Deshpande</div>
@@ -142,7 +149,7 @@ export function LoginForm() {
           </button>
           <button
             type="button"
-            onClick={() => quickFill("GreenCircuit Collective", "recycler")}
+            onClick={() => quickFill("GreenCircuit Collective")}
             className="rounded-xl border border-line bg-paper px-3 py-2 text-left text-xs transition hover:border-olive hover:bg-lime/10"
           >
             <div className="font-semibold text-ink">GreenCircuit</div>
@@ -150,7 +157,7 @@ export function LoginForm() {
           </button>
           <button
             type="button"
-            onClick={() => quickFill("Leela Thomas", "admin")}
+            onClick={() => quickFill("Leela Thomas")}
             className="rounded-xl border border-line bg-paper px-3 py-2 text-left text-xs transition hover:border-olive hover:bg-lime/10"
           >
             <div className="font-semibold text-ink">Leela Thomas</div>
@@ -187,40 +194,76 @@ export function SignupForm() {
     event.preventDefault();
     const nextErrors: Record<string, string> = {};
     if (name.trim().length < 2) nextErrors.name = "Please enter your full name or organisation name.";
-    if (password.trim().length < 4) nextErrors.password = "Choose a password with at least 4 characters.";
+    if (password.trim().length < 6) nextErrors.password = "Choose a password with at least 6 characters.";
     if (role === "admin") nextErrors.role = "Admin accounts cannot be self-registered.";
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return;
 
     setLoading(true);
+    const safeRole = sanitizeSelfAssignedRole(role);
+    const displayName = name.trim();
+    const email = accountEmailFromName(displayName);
+
     try {
-      const res = await fetch("/api/auth/account", {
+      // Prefer Admin bootstrap when available (sets profile server-side, blocks admin).
+      const bootstrap = await fetch("/api/auth/account", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: name.trim(),
+          name: displayName,
           password: password.trim(),
-          role,
+          role: safeRole,
           city: city.trim() || "Bengaluru",
         }),
       });
-      const data = await res.json();
-      setLoading(false);
+      const bootstrapBody = await bootstrap.json();
 
-      if (!res.ok || !data.success || !data.user) {
-        setErrors({ name: data.error || "Could not create account." });
+      if (bootstrap.ok && bootstrapBody.success && bootstrapBody.customToken) {
+        const signed = await signInWithFirebaseCustomToken(bootstrapBody.customToken as string);
+        if (!signed.success || !signed.user) {
+          setLoading(false);
+          setErrors({ name: signed.error || "Could not complete Firebase sign-in." });
+          return;
+        }
+        signIn({
+          id: signed.user.uid,
+          name: displayName,
+          email,
+          role: safeRole,
+          city: city.trim() || "Bengaluru",
+        });
+        setLoading(false);
+        router.push(safeRole === "admin" ? homeForRole(safeRole) : "/verify");
         return;
       }
 
-      const user = data.user;
-      // Instant login - no phone OTP or email confirmation required
-      signIn({
-        name: user.name,
-        role: user.role,
-        city: user.city || city.trim() || "Bengaluru",
-      });
+      // Browser Firebase Auth path when Admin SDK is not configured.
+      const res = await registerFirebaseEmailUser(
+        email,
+        password.trim(),
+        displayName,
+        safeRole,
+        city.trim() || "Bengaluru",
+      );
+      setLoading(false);
+      if (!res.success || !res.user) {
+        setErrors({
+          name:
+            bootstrapBody.code === "ADMIN_REQUIRED"
+              ? res.error || "Could not create account with Firebase Auth."
+              : bootstrapBody.error || res.error || "Could not create account.",
+        });
+        return;
+      }
 
-      router.push(homeForRole(user.role));
+      signIn({
+        id: res.user.uid,
+        name: displayName,
+        email,
+        role: safeRole,
+        city: city.trim() || "Bengaluru",
+      });
+      router.push("/verify");
     } catch {
       setLoading(false);
       setErrors({ name: "Network error. Please try again." });
@@ -231,7 +274,7 @@ export function SignupForm() {
     <div>
       <h1 className="text-4xl font-extrabold tracking-tight">Create an account</h1>
       <p className="mt-3 text-sm leading-6 text-muted">
-        Create an account with your name and password. No email or phone verification required.
+        Create a Firebase-authenticated Scrapo account. Your display name maps to a private auth email; admin cannot be self-assigned.
       </p>
 
       <form className="mt-8 space-y-4" onSubmit={submit} noValidate>
@@ -248,13 +291,13 @@ export function SignupForm() {
           />
         </Field>
 
-        <Field label="Create Password" htmlFor="signup-password" error={errors.password}>
+        <Field label="Password" htmlFor="signup-password" error={errors.password}>
           <div className="relative">
             <TextInput
               id="signup-password"
               type={showPassword ? "text" : "password"}
               autoComplete="new-password"
-              placeholder="At least 4 characters"
+              placeholder="At least 6 characters"
               value={password}
               onChange={(e) => {
                 setPassword(e.target.value);
@@ -272,29 +315,29 @@ export function SignupForm() {
           </div>
         </Field>
 
-        <Field label="City" htmlFor="signup-city">
-          <TextInput
-            id="signup-city"
-            value={city}
-            placeholder="Bengaluru, Kochi, Mumbai..."
-            onChange={(e) => setCity(e.target.value)}
-          />
-        </Field>
-
         <Field label="I am joining as" htmlFor="signup-role" error={errors.role}>
           <SelectInput
             id="signup-role"
             value={role}
             onChange={(e) => setRole(e.target.value as Role)}
           >
-            <option value="donor">A donor (donating unused electronics)</option>
-            <option value="student">A student (seeking study hardware)</option>
-            <option value="recycler">A verified recycling partner</option>
+            <option value="donor">Donor</option>
+            <option value="student">Student</option>
+            <option value="recycler">Recycler partner</option>
           </SelectInput>
         </Field>
 
+        <Field label="City" htmlFor="signup-city">
+          <TextInput
+            id="signup-city"
+            value={city}
+            onChange={(e) => setCity(e.target.value)}
+            placeholder="Bengaluru"
+          />
+        </Field>
+
         <Button type="submit" className="w-full" size="lg" disabled={loading}>
-          {loading ? "Creating account..." : "Create Account & Enter Scrapo"}
+          {loading ? "Creating account..." : "Create account"}
         </Button>
       </form>
 
@@ -310,8 +353,6 @@ export function SignupForm() {
 
 export function ForgotPasswordForm() {
   const router = useRouter();
-  const { signIn } = usePrototype();
-
   const [name, setName] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [error, setError] = useState("");
@@ -324,8 +365,8 @@ export function ForgotPasswordForm() {
       setError("Please enter your account name.");
       return;
     }
-    if (newPassword.trim().length < 4) {
-      setError("New password must be at least 4 characters.");
+    if (newPassword.trim().length < 6) {
+      setError("New password must be at least 6 characters.");
       return;
     }
 
@@ -342,21 +383,17 @@ export function ForgotPasswordForm() {
       setLoading(false);
 
       if (!res.ok || !data.success) {
-        setError(data.error || "Could not update password.");
+        setError(
+          data.error ||
+            "Could not update password. Firebase Admin credentials are required for server-side resets.",
+        );
         return;
       }
 
       setSuccess(true);
-      // Log user in automatically with new password
-      signIn({
-        name: name.trim(),
-        role: "donor",
-        city: "Bengaluru",
-      });
-
       setTimeout(() => {
-        router.push("/dashboard");
-      }, 1000);
+        router.push("/login");
+      }, 1200);
     } catch {
       setLoading(false);
       setError("Network error. Please try again.");
@@ -367,20 +404,20 @@ export function ForgotPasswordForm() {
     <div>
       <h1 className="text-4xl font-extrabold tracking-tight">Reset Password</h1>
       <p className="mt-3 text-sm leading-6 text-muted">
-        Enter your account name and choose a new password. No verification codes needed.
+        Enter your account name and choose a new Firebase Auth password. Requires server Admin credentials.
       </p>
 
-      {error && (
+      {error ? (
         <div className="mt-4 rounded-2xl border border-danger/30 bg-danger/10 p-3 text-xs font-semibold text-danger">
           {error}
         </div>
-      )}
+      ) : null}
 
-      {success && (
+      {success ? (
         <div className="mt-4 rounded-2xl border border-lime/40 bg-lime/10 p-3 text-xs font-semibold text-olive">
-          Password updated! Redirecting to your dashboard...
+          Password updated. Redirecting to login...
         </div>
-      )}
+      ) : null}
 
       <form className="mt-6 space-y-4" onSubmit={submit} noValidate>
         <Field label="Account Name" htmlFor="reset-name">
@@ -391,25 +428,20 @@ export function ForgotPasswordForm() {
             onChange={(e) => setName(e.target.value)}
           />
         </Field>
-
-        <Field label="New Password" htmlFor="reset-new-password">
+        <Field label="New password" htmlFor="reset-password">
           <TextInput
-            id="reset-new-password"
+            id="reset-password"
             type="password"
-            placeholder="At least 4 characters"
+            autoComplete="new-password"
+            placeholder="At least 6 characters"
             value={newPassword}
             onChange={(e) => setNewPassword(e.target.value)}
           />
         </Field>
-
-        <Button type="submit" className="w-full" size="lg" disabled={loading || success}>
-          {loading ? "Updating..." : "Update Password & Enter"}
+        <Button type="submit" className="w-full" size="lg" disabled={loading}>
+          {loading ? "Updating..." : "Update password"}
         </Button>
       </form>
-
-      <Link href="/login" className="mt-4 inline-block text-sm font-semibold text-olive hover:underline">
-        Back to log in
-      </Link>
     </div>
   );
 }

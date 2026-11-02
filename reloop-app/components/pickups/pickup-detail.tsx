@@ -39,11 +39,16 @@ export function PickupDetail({ id }: { id: string }) {
   }
 
   // TrustShield Privacy Access Rules:
-  // Restrict personal contact and pickup information to authorised users (donor, assigned recycler, or admin).
+  // Full street address / phones only for the owning donor (donorId), collection recyclers, or admins.
+  // Buyers/students and unrelated donors never see previous-owner PII.
+  const ownsDraft = Boolean(drafts?.some((item) => item.id === pickup.id && item.donorId === profile.id));
+  const isOwningDonor = Boolean(
+    profile.id &&
+      (pickup.donorId === profile.id || ownsDraft),
+  );
+  const isCollectionPartner = profile.role === "recycler";
   const isAuthorized =
-    profile.role === "admin" ||
-    profile.role === "donor" ||
-    profile.role === "recycler";
+    profile.role === "admin" || isOwningDonor || isCollectionPartner;
 
   const maskedAddress = isAuthorized
     ? `${pickup.address}, ${pickup.city}`
