@@ -1,0 +1,633 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: profiles
+    // Document ID: {userId} (matches Firebase Auth UID)
+    // Fields:
+    //   - id: string (required, 1-128 chars, matches UID)
+    //   - full_name: string (required, 1-100 chars)
+    //   - email: string (optional if phone present, valid email pattern, 3-100 chars)
+    //   - phone: string (optional if email present, e.g. E.164 phone number, 1-30 chars)
+    //   - role: string (required, 'donor' | 'student' | 'recycler' | 'admin')
+    //   - city: string (optional, 1-100 chars)
+    //   - points_month: number (optional, >= 0, server/admin managed)
+    //   - points_lifetime: number (optional, >= 0, server/admin managed)
+    //   - created_at: timestamp (optional/immutable)
+    //   - updated_at: timestamp (optional)
+    //
+    // Collection: devices
+    // Document ID: {deviceId}
+    // Fields:
+    //   - id: string (optional, 1-128 chars)
+    //   - owner_id: string (required, 1-128 chars, immutable, matches donor UID)
+    //   - category: string (required, 'phone' | 'laptop' | 'tablet' | 'monitor' | 'appliance' | 'accessory' | 'other')
+    //   - brand: string (required, 1-100 chars)
+    //   - model: string (required, 1-100 chars)
+    //   - status: string (required, 'requested' | 'assigned' | 'scheduled' | 'collected' | 'inspected' | 'processing' | 'donated' | 'completed' | 'rejected' | 'cancelled' | 'pickup_failed' | 'awaiting_rescheduling')
+    //   - description: string (optional, 0-2000 chars)
+    //   - age_years: number (optional, 0-100)
+    //   - condition: string (optional, 'excellent' | 'good' | 'fair' | 'poor')
+    //   - working_status: string (optional, 'working' | 'partial' | 'not_working')
+    //   - estimated_value: number (optional, >= 0)
+    //   - points: number (optional, >= 0)
+    //   - assigned_student_id: string (optional, 1-128 chars)
+    //   - assigned_recycler_id: string (optional, 1-128 chars)
+    //   - created_at: timestamp (optional/immutable)
+    //   - updated_at: timestamp (optional)
+    //
+    // Collection: pickups
+    // Document ID: {pickupId}
+    // Fields:
+    //   - id: string (optional, 1-128 chars)
+    //   - tracking_id: string (required, 1-128 chars, immutable)
+    //   - device_id: string (required, 1-128 chars, immutable)
+    //   - donor_id: string (optional/recommended, 1-128 chars, immutable)
+    //   - recycler_id: string (optional, 1-128 chars, nullable)
+    //   - address: string (required, 1-300 chars)
+    //   - city: string (required, 1-100 chars)
+    //   - collection_date: string | timestamp (optional)
+    //   - status: string (required, valid pickup statuses)
+    //   - status_note: string (optional, 0-1000 chars)
+    //   - show_certificate: bool (optional)
+    //   - assigned_student_id: string (optional, 1-128 chars)
+    //   - created_at: timestamp (optional/immutable)
+    //   - updated_at: timestamp (optional)
+    //
+    // Collection: tracking_events & pickups/{pickupId}/events
+    // Document ID: {eventId}
+    // Fields:
+    //   - id: string (optional, 1-128 chars)
+    //   - pickup_id: string (required, 1-128 chars)
+    //   - device_id: string (optional, 1-128 chars)
+    //   - timestamp: timestamp (required)
+    //   - stage: string (optional, 'submission' | 'pickup_confirmation' | 'handover' | 'inspection' | 'sanitisation' | 'outcome')
+    //   - action: string (required, 1-100 chars)
+    //   - responsible_user_id: string (required, 1-128 chars, matches auth.uid)
+    //   - responsible_role: string (required, 'donor' | 'student' | 'recycler' | 'admin' | 'technician' | 'system')
+    //   - responsible_user_name: string (optional, 1-100 chars)
+    //   - responsible_org: string (optional, 1-100 chars)
+    //   - notes: string (optional, 0-1000 chars)
+    //
+    // Collection: ai_tracker_cache
+    // Document ID: {pickupId} (keyed by pickup_id)
+    // Fields:
+    //   - pickup_id: string (required, 1-128 chars)
+    //   - statusExplanation: string (optional, 0-2000 chars)
+    //   - completedMilestones: list of strings (optional, max 20 items)
+    //   - nextExpectedMilestone: string (optional, 0-500 chars)
+    //   - delayDetected: bool (required)
+    //   - delayExplanation: string (optional, 0-2000 chars, nullable)
+    //   - recommendedAction: string (optional, 0-1000 chars)
+    //   - estimatedCompletion: string (optional, 0-100 chars)
+    //   - source: string (optional, 'gemini' | 'fallback')
+    //   - modelUsed: string (optional, 0-100 chars)
+    //   - generatedAt: timestamp (required)
+    //   - updated_at: timestamp (optional)
+    //
+    // Collection: recycler_profiles
+    // Document ID: {recyclerId}
+    // Fields:
+    //   - id: string (optional, 1-128 chars)
+    //   - profile_id: string (required, 1-128 chars, matches recycler auth.uid)
+    //   - org_name: string (required, 1-150 chars)
+    //   - license: string (required, 1-100 chars)
+    //   - city: string (required, 1-100 chars)
+    //   - status: string (required, 'pending' | 'verified' | 'needs_info', admin-verified)
+    //   - verified_at: timestamp (optional, admin-set)
+    //   - verified_by: string (optional, 1-128 chars, admin-set)
+    //   - created_at: timestamp (optional/immutable)
+    //   - updated_at: timestamp (optional)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Global Helper Functions
+    // ===============================================================
+
+    // Check if the user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Check if user owns the resource (by userId match)
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Role-based authorization helpers
+    // Uses custom claims first, with fallback to profiles collection
+    function getRoleFromProfile() {
+      return exists(/databases/$(database)/documents/profiles/$(request.auth.uid))
+        ? get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.role
+        : null;
+    }
+
+    function hasRole(role) {
+      return isAuthenticated() && (
+        request.auth.token.role == role ||
+        getRoleFromProfile() == role
+      );
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.role == 'admin' ||
+        request.auth.token.admin == true ||
+        getRoleFromProfile() == 'admin'
+      );
+    }
+
+    function isDonor() {
+      return hasRole('donor');
+    }
+
+    function isRecycler() {
+      return hasRole('recycler');
+    }
+
+    function isStudent() {
+      return hasRole('student');
+    }
+
+    // Validate email format
+    function isValidEmail(email) {
+      return email is string &&
+             email.size() >= 3 &&
+             email.size() <= 100 &&
+             email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    // Validate immutable fields on update
+    function areImmutableFieldsUnchanged(fields) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
+    }
+
+    // Validate pickup ownership by donor
+    function isPickupDonor(pickupData) {
+      return isAuthenticated() && (
+        ('donor_id' in pickupData && pickupData.donor_id == request.auth.uid) ||
+        ('owner_id' in pickupData && pickupData.owner_id == request.auth.uid) ||
+        (exists(/databases/$(database)/documents/devices/$(pickupData.device_id)) &&
+         get(/databases/$(database)/documents/devices/$(pickupData.device_id)).data.owner_id == request.auth.uid)
+      );
+    }
+
+    // Determine if user has permission to read pickup-related events or AI cache.
+    // Students/buyers do NOT get pickup document access (those include street addresses).
+    // Marketplace listings must be used for student-facing device discovery without donor PII.
+    function canAccessPickupContext(pickupId) {
+      return isAuthenticated() && (
+        isAdmin() ||
+        (exists(/databases/$(database)/documents/pickups/$(pickupId)) &&
+          (
+            isPickupDonor(get(/databases/$(database)/documents/pickups/$(pickupId)).data) ||
+            (isRecycler() && (
+              get(/databases/$(database)/documents/pickups/$(pickupId)).data.get('recycler_id', '') == request.auth.uid ||
+              get(/databases/$(database)/documents/pickups/$(pickupId)).data.status == 'requested'
+            ))
+          )
+        )
+      );
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidProfile(data) {
+      return data.keys().hasAll(['id', 'full_name', 'role']) &&
+             (('email' in data) || ('phone' in data)) &&
+             data.keys().hasOnly(['id', 'full_name', 'email', 'phone', 'role', 'city', 'points_month', 'points_lifetime', 'created_at', 'updated_at']) &&
+             data.id is string && data.id.size() >= 1 && data.id.size() <= 128 &&
+             data.full_name is string && data.full_name.size() >= 1 && data.full_name.size() <= 100 &&
+             (!('email' in data) || isValidEmail(data.email)) &&
+             (!('phone' in data) || (data.phone is string && data.phone.size() >= 7 && data.phone.size() <= 30)) &&
+             data.role in ['donor', 'student', 'recycler', 'admin'] &&
+             (!('city' in data) || data.city == null || (data.city is string && data.city.size() <= 100)) &&
+             (!('points_month' in data) || (data.points_month is number && data.points_month >= 0)) &&
+             (!('points_lifetime' in data) || (data.points_lifetime is number && data.points_lifetime >= 0)) &&
+             (!('created_at' in data) || data.created_at is timestamp) &&
+             (!('updated_at' in data) || data.updated_at is timestamp);
+    }
+
+    function isValidDevice(data) {
+      return data.keys().hasAll(['owner_id', 'category', 'brand', 'model', 'status']) &&
+             data.keys().hasOnly([
+               'id', 'owner_id', 'category', 'brand', 'model', 'status',
+               'created_at', 'updated_at', 'description', 'age_years',
+               'condition', 'working_status', 'estimated_value', 'points',
+               'assigned_student_id', 'assigned_recycler_id'
+             ]) &&
+             data.owner_id is string && data.owner_id.size() >= 1 && data.owner_id.size() <= 128 &&
+             data.category in ['phone', 'laptop', 'tablet', 'monitor', 'appliance', 'accessory', 'other'] &&
+             data.brand is string && data.brand.size() >= 1 && data.brand.size() <= 100 &&
+             data.model is string && data.model.size() >= 1 && data.model.size() <= 100 &&
+             data.status in ['requested', 'assigned', 'scheduled', 'collected', 'inspected', 'processing', 'donated', 'completed', 'rejected', 'cancelled', 'pickup_failed', 'awaiting_rescheduling'] &&
+             (!('id' in data) || (data.id is string && data.id.size() <= 128)) &&
+             (!('created_at' in data) || data.created_at is timestamp) &&
+             (!('updated_at' in data) || data.updated_at is timestamp) &&
+             (!('description' in data) || data.description == null || (data.description is string && data.description.size() <= 2000)) &&
+             (!('age_years' in data) || data.age_years == null || (data.age_years is number && data.age_years >= 0 && data.age_years <= 100)) &&
+             (!('condition' in data) || data.condition == null || data.condition in ['excellent', 'good', 'fair', 'poor']) &&
+             (!('working_status' in data) || data.working_status == null || data.working_status in ['working', 'partial', 'not_working']) &&
+             (!('estimated_value' in data) || data.estimated_value == null || (data.estimated_value is number && data.estimated_value >= 0)) &&
+             (!('points' in data) || data.points == null || (data.points is number && data.points >= 0)) &&
+             (!('assigned_student_id' in data) || data.assigned_student_id == null || (data.assigned_student_id is string && data.assigned_student_id.size() <= 128)) &&
+             (!('assigned_recycler_id' in data) || data.assigned_recycler_id == null || (data.assigned_recycler_id is string && data.assigned_recycler_id.size() <= 128));
+    }
+
+    function isValidPickup(data) {
+      return data.keys().hasAll(['tracking_id', 'device_id', 'address', 'city', 'status']) &&
+             data.keys().hasOnly([
+               'id', 'tracking_id', 'device_id', 'donor_id', 'recycler_id',
+               'address', 'city', 'collection_date', 'status', 'status_note',
+               'created_at', 'updated_at', 'show_certificate', 'assigned_student_id'
+             ]) &&
+             data.tracking_id is string && data.tracking_id.size() >= 1 && data.tracking_id.size() <= 128 &&
+             data.device_id is string && data.device_id.size() >= 1 && data.device_id.size() <= 128 &&
+             data.address is string && data.address.size() >= 1 && data.address.size() <= 300 &&
+             data.city is string && data.city.size() >= 1 && data.city.size() <= 100 &&
+             data.status in ['requested', 'assigned', 'scheduled', 'collected', 'inspected', 'processing', 'donated', 'completed', 'rejected', 'cancelled', 'pickup_failed', 'awaiting_rescheduling'] &&
+             (!('id' in data) || (data.id is string && data.id.size() <= 128)) &&
+             (!('donor_id' in data) || (data.donor_id is string && data.donor_id.size() <= 128)) &&
+             (!('recycler_id' in data) || data.recycler_id == null || (data.recycler_id is string && data.recycler_id.size() <= 128)) &&
+             (!('collection_date' in data) || data.collection_date == null || (data.collection_date is string && data.collection_date.size() <= 50) || data.collection_date is timestamp) &&
+             (!('status_note' in data) || data.status_note == null || (data.status_note is string && data.status_note.size() <= 1000)) &&
+             (!('show_certificate' in data) || data.show_certificate is bool) &&
+             (!('assigned_student_id' in data) || data.assigned_student_id == null || (data.assigned_student_id is string && data.assigned_student_id.size() <= 128)) &&
+             (!('created_at' in data) || data.created_at is timestamp) &&
+             (!('updated_at' in data) || data.updated_at is timestamp);
+    }
+
+    // CleanDevice / TrustShield sanitisation records — evidence is sensitive.
+    function isValidSanitisationRecord(data) {
+      return data.keys().hasAll(['device_id', 'pickup_id', 'status', 'method', 'technician_id', 'verification_status']) &&
+             data.status in ['pending', 'in_progress', 'completed', 'failed'] &&
+             data.verification_status in ['pending_review', 'verified', 'rejected'] &&
+             data.device_id is string && data.pickup_id is string &&
+             data.method is string && data.method.size() >= 1 && data.method.size() <= 200 &&
+             data.technician_id is string;
+    }
+
+    function isValidTrackingEvent(data) {
+      return data.keys().hasAll(['pickup_id', 'action', 'responsible_user_id', 'responsible_role', 'timestamp']) &&
+             data.keys().hasOnly([
+               'id', 'pickup_id', 'device_id', 'timestamp', 'stage',
+               'action', 'responsible_user_id', 'responsible_role',
+               'responsible_user_name', 'responsible_org', 'notes'
+             ]) &&
+             data.pickup_id is string && data.pickup_id.size() >= 1 && data.pickup_id.size() <= 128 &&
+             data.action is string && data.action.size() >= 1 && data.action.size() <= 100 &&
+             data.responsible_user_id is string && data.responsible_user_id.size() >= 1 && data.responsible_user_id.size() <= 128 &&
+             data.responsible_role in ['donor', 'student', 'recycler', 'admin', 'technician', 'system'] &&
+             data.timestamp is timestamp &&
+             (!('id' in data) || (data.id is string && data.id.size() <= 128)) &&
+             (!('device_id' in data) || (data.device_id is string && data.device_id.size() <= 128)) &&
+             (!('stage' in data) || data.stage in ['submission', 'pickup_confirmation', 'handover', 'inspection', 'sanitisation', 'outcome']) &&
+             (!('responsible_user_name' in data) || (data.responsible_user_name is string && data.responsible_user_name.size() <= 100)) &&
+             (!('responsible_org' in data) || (data.responsible_org is string && data.responsible_org.size() <= 100)) &&
+             (!('notes' in data) || data.notes == null || (data.notes is string && data.notes.size() <= 1000));
+    }
+
+    function isValidAiCache(data) {
+      return data.keys().hasAll(['pickup_id', 'delayDetected', 'generatedAt']) &&
+             data.keys().hasOnly([
+               'pickup_id', 'statusExplanation', 'completedMilestones',
+               'nextExpectedMilestone', 'delayDetected', 'delayExplanation',
+               'recommendedAction', 'estimatedCompletion', 'source',
+               'modelUsed', 'generatedAt', 'updated_at'
+             ]) &&
+             data.pickup_id is string && data.pickup_id.size() >= 1 && data.pickup_id.size() <= 128 &&
+             data.delayDetected is bool &&
+             data.generatedAt is timestamp &&
+             (!('statusExplanation' in data) || (data.statusExplanation is string && data.statusExplanation.size() <= 2000)) &&
+             (!('completedMilestones' in data) || (data.completedMilestones is list && data.completedMilestones.size() <= 20)) &&
+             (!('nextExpectedMilestone' in data) || (data.nextExpectedMilestone is string && data.nextExpectedMilestone.size() <= 500)) &&
+             (!('delayExplanation' in data) || data.delayExplanation == null || (data.delayExplanation is string && data.delayExplanation.size() <= 2000)) &&
+             (!('recommendedAction' in data) || (data.recommendedAction is string && data.recommendedAction.size() <= 1000)) &&
+             (!('estimatedCompletion' in data) || data.estimatedCompletion == null || (data.estimatedCompletion is string && data.estimatedCompletion.size() <= 100) || data.estimatedCompletion is timestamp) &&
+             (!('source' in data) || data.source in ['gemini', 'fallback']) &&
+             (!('modelUsed' in data) || (data.modelUsed is string && data.modelUsed.size() <= 100)) &&
+             (!('updated_at' in data) || data.updated_at is timestamp);
+    }
+
+    function isValidRecyclerProfile(data) {
+      return data.keys().hasAll(['profile_id', 'org_name', 'license', 'city', 'status']) &&
+             data.keys().hasOnly([
+               'id', 'profile_id', 'org_name', 'license', 'city',
+               'status', 'verified_at', 'verified_by', 'created_at', 'updated_at'
+             ]) &&
+             data.profile_id is string && data.profile_id.size() >= 1 && data.profile_id.size() <= 128 &&
+             data.org_name is string && data.org_name.size() >= 1 && data.org_name.size() <= 150 &&
+             data.license is string && data.license.size() >= 1 && data.license.size() <= 100 &&
+             data.city is string && data.city.size() >= 1 && data.city.size() <= 100 &&
+             data.status in ['pending', 'verified', 'needs_info'] &&
+             (!('id' in data) || (data.id is string && data.id.size() <= 128)) &&
+             (!('verified_by' in data) || data.verified_by == null || (data.verified_by is string && data.verified_by.size() <= 128)) &&
+             (!('verified_at' in data) || data.verified_at is timestamp) &&
+             (!('created_at' in data) || data.created_at is timestamp) &&
+             (!('updated_at' in data) || data.updated_at is timestamp);
+    }
+
+    // ===============================================================
+    // Collection Match Rules
+    // ===============================================================
+
+    // Root default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 1. Profiles
+    // PII protected: users can only read their own profile; admins have system oversight
+    match /profiles/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+
+      // Prevent privilege escalation: non-admins cannot create admin role or seed points
+      allow create: if isOwner(userId) &&
+        isValidProfile(request.resource.data) &&
+        (request.resource.data.role != 'admin' || isAdmin()) &&
+        (!('points_month' in request.resource.data) || request.resource.data.points_month == 0 || isAdmin()) &&
+        (!('points_lifetime' in request.resource.data) || request.resource.data.points_lifetime == 0 || isAdmin());
+
+      // Prevent privilege escalation: non-admins cannot change role or alter points
+      allow update: if (isAdmin() && isValidProfile(request.resource.data)) ||
+        (isOwner(userId) &&
+         isValidProfile(request.resource.data) &&
+         request.resource.data.role == resource.data.role &&
+         areImmutableFieldsUnchanged(['id', 'created_at']) &&
+         ((!('points_month' in request.resource.data) && !('points_month' in resource.data)) || request.resource.data.points_month == resource.data.points_month) &&
+         ((!('points_lifetime' in request.resource.data) && !('points_lifetime' in resource.data)) || request.resource.data.points_lifetime == resource.data.points_lifetime));
+
+      allow delete: if isAdmin();
+    }
+
+    // 2. Devices
+    // Donors see their devices; recyclers see open intake or assigned hardware.
+    // Students only see devices explicitly assigned to them — never donor contact fields (not stored here).
+    match /devices/{deviceId} {
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        resource.data.owner_id == request.auth.uid ||
+        (isRecycler() && (
+          resource.data.status in ['requested', 'assigned', 'scheduled', 'collected', 'inspected', 'processing'] ||
+          resource.data.get('assigned_recycler_id', '') == request.auth.uid
+        )) ||
+        (isStudent() && resource.data.get('assigned_student_id', '') == request.auth.uid)
+      );
+
+      // Donors list devices in 'requested' state; admins can create directly
+      allow create: if isAuthenticated() &&
+        isValidDevice(request.resource.data) &&
+        (
+          isAdmin() ||
+          (isDonor() && request.resource.data.owner_id == request.auth.uid && request.resource.data.status == 'requested')
+        );
+
+      // Donors can update their listing before intake; recyclers update status/diagnostics during intake
+      allow update: if isAuthenticated() && isValidDevice(request.resource.data) && (
+        isAdmin() ||
+        (isOwner(resource.data.owner_id) &&
+         areImmutableFieldsUnchanged(['id', 'owner_id', 'created_at']) &&
+         (resource.data.status == 'requested' || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['description']))) ||
+        (isRecycler() &&
+         areImmutableFieldsUnchanged(['id', 'owner_id', 'created_at', 'category', 'brand', 'model']) &&
+         (resource.data.status in ['requested', 'assigned', 'scheduled', 'collected', 'inspected', 'processing']))
+      );
+
+      allow delete: if isAdmin() || (isOwner(resource.data.owner_id) && resource.data.status == 'requested');
+    }
+
+    // 3. Pickups
+    // Donors only see their pickups; recyclers see assigned pickups and open intake
+    match /pickups/{pickupId} {
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        isPickupDonor(resource.data) ||
+        (isRecycler() && (
+          resource.data.status == 'requested' ||
+          resource.data.get('recycler_id', '') == request.auth.uid
+        ))
+      );
+
+      // Donors create pickup requests for their own devices; admins can create directly
+      allow create: if isAuthenticated() &&
+        isValidPickup(request.resource.data) &&
+        (
+          isAdmin() ||
+          (isDonor() &&
+           request.resource.data.status == 'requested' &&
+           (!('donor_id' in request.resource.data) || request.resource.data.donor_id == request.auth.uid) &&
+           exists(/databases/$(database)/documents/devices/$(request.resource.data.device_id)) &&
+           get(/databases/$(database)/documents/devices/$(request.resource.data.device_id)).data.owner_id == request.auth.uid)
+        );
+
+      // Donors can reschedule/cancel before collection; recyclers can claim intake and advance pickup lifecycle
+      allow update: if isAuthenticated() && isValidPickup(request.resource.data) && (
+        isAdmin() ||
+        (isPickupDonor(resource.data) &&
+         areImmutableFieldsUnchanged(['id', 'tracking_id', 'device_id', 'donor_id', 'created_at']) &&
+         resource.data.status in ['requested', 'scheduled'] &&
+         request.resource.data.status in ['requested', 'scheduled', 'cancelled']) ||
+        (isRecycler() &&
+         areImmutableFieldsUnchanged(['id', 'tracking_id', 'device_id', 'donor_id', 'address', 'city', 'created_at']) &&
+         (resource.data.status == 'requested'
+           ? request.resource.data.recycler_id == request.auth.uid
+           : resource.data.recycler_id == request.auth.uid))
+      );
+
+      allow delete: if isAdmin() || (isPickupDonor(resource.data) && resource.data.status == 'requested');
+
+      // Subcollection: pickups/{pickupId}/events
+      match /events/{eventId} {
+        allow read: if canAccessPickupContext(pickupId);
+
+        // Append-only audit trail: authorized actors can insert events; no updates permitted
+        allow create: if isAuthenticated() &&
+          isValidTrackingEvent(request.resource.data) &&
+          request.resource.data.pickup_id == pickupId &&
+          (isAdmin() || (
+            request.resource.data.responsible_user_id == request.auth.uid &&
+            canAccessPickupContext(pickupId)
+          ));
+
+        allow update: if false; // Append-only audit trail
+        allow delete: if isAdmin();
+      }
+    }
+
+    // 4. Tracking Events (top-level collection alias)
+    // Append-only audit trail of custody events
+    match /tracking_events/{eventId} {
+      allow read: if canAccessPickupContext(resource.data.pickup_id);
+
+      allow create: if isAuthenticated() &&
+        isValidTrackingEvent(request.resource.data) &&
+        (isAdmin() || (
+          request.resource.data.responsible_user_id == request.auth.uid &&
+          canAccessPickupContext(request.resource.data.pickup_id)
+        ));
+
+      allow update: if false; // Append-only audit trail
+      allow delete: if isAdmin();
+    }
+
+    // 5. AI Tracker Cache
+    // Cached Gemini status intelligence and delay analysis keyed by pickup_id.
+    // Read by authorized pickup viewers; written only by server/admin
+    match /ai_tracker_cache/{pickupId} {
+      allow read: if canAccessPickupContext(pickupId);
+
+      // Write restricted to admin/server
+      allow create, update: if isAdmin() && isValidAiCache(request.resource.data) && request.resource.data.pickup_id == pickupId;
+      allow delete: if isAdmin();
+    }
+
+    // 6c. Scrapo FairAccess applications & allocations
+    // Household keys and student applications are private to owner + admin.
+    match /fairaccess_applications/{applicationId} {
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        resource.data.studentId == request.auth.uid
+      );
+      allow create: if isAuthenticated() &&
+        request.resource.data.studentId == request.auth.uid &&
+        request.resource.data.status in ['pending', 'flagged'] &&
+        request.resource.data.acceptsResaleRestriction == true;
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /fairaccess_allocations/{allocationId} {
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        resource.data.studentId == request.auth.uid
+      );
+      allow create, update, delete: if isAdmin();
+    }
+
+    // 6b. Scrapo Verify applications
+    // Identity / enrolment evidence is private: owner + admin only. Users cannot self-approve.
+    match /verifications/{verificationId} {
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        resource.data.userId == request.auth.uid
+      );
+
+      allow create: if isAuthenticated() &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.status == 'pending' &&
+        request.resource.data.role in ['donor', 'student', 'recycler'] &&
+        request.resource.data.kind in ['contact', 'student', 'recycler', 'donor_ownership'] &&
+        !('reviewerId' in request.resource.data) &&
+        !('reviewerName' in request.resource.data) &&
+        !('reviewedAt' in request.resource.data);
+
+      // Applicants may only resubmit while pending/rejected/expired fields they own remain pending.
+      // Status, reviewer fields, and role are admin-only.
+      allow update: if isAdmin() ||
+        (isAuthenticated() &&
+         resource.data.userId == request.auth.uid &&
+         request.resource.data.userId == resource.data.userId &&
+         request.resource.data.role == resource.data.role &&
+         request.resource.data.status == 'pending' &&
+         resource.data.status in ['pending', 'rejected', 'expired'] &&
+         !request.resource.data.diff(resource.data).affectedKeys().hasAny(['reviewerId', 'reviewerName', 'reviewedAt', 'expiresAt']));
+
+      allow delete: if isAdmin();
+    }
+
+    // 6e. Scrapo CleanDevice — sanitisation + custody (server/Admin SDK preferred)
+    // Clients cannot forge verification_status to verified; only admins may set that.
+    match /device_sanitisation_records/{recordId} {
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        resource.data.technician_id == request.auth.uid ||
+        canAccessPickupContext(resource.data.pickup_id)
+      );
+
+      allow create: if isAuthenticated() &&
+        isValidSanitisationRecord(request.resource.data) &&
+        (isAdmin() || (isRecycler() && request.resource.data.technician_id == request.auth.uid)) &&
+        request.resource.data.verification_status == 'pending_review' &&
+        !('verified_by' in request.resource.data) &&
+        !('verified_at' in request.resource.data);
+
+      allow update: if isAdmin() && isValidSanitisationRecord(request.resource.data) &&
+        request.resource.data.device_id == resource.data.device_id &&
+        request.resource.data.pickup_id == resource.data.pickup_id &&
+        request.resource.data.technician_id == resource.data.technician_id;
+
+      allow delete: if isAdmin();
+    }
+
+    match /device_custody_history/{eventId} {
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        canAccessPickupContext(resource.data.pickup_id)
+      );
+
+      // Append-only custody audit trail
+      allow create: if isAuthenticated() &&
+        request.resource.data.keys().hasAll(['pickup_id', 'device_id', 'action', 'responsible_user_id', 'responsible_role']) &&
+        (isAdmin() || request.resource.data.responsible_user_id == request.auth.uid);
+
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+
+    // 6d. Scrapo Accountability — suspicious listing reports (append-only for reporters)
+    match /listing_reports/{reportId} {
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        resource.data.reporterId == request.auth.uid
+      );
+
+      allow create: if isAuthenticated() &&
+        request.resource.data.reporterId == request.auth.uid &&
+        request.resource.data.status == 'open' &&
+        !('resolverId' in request.resource.data) &&
+        !('resolvedAt' in request.resource.data);
+
+      // Only admins may resolve/dismiss. Silent field edits by reporters are denied.
+      allow update: if isAdmin() &&
+        request.resource.data.reporterId == resource.data.reporterId &&
+        request.resource.data.listingId == resource.data.listingId &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        request.resource.data.status in ['reviewing', 'resolved', 'dismissed'];
+
+      allow delete: if isAdmin();
+    }
+
+    // 6. Recycler Profiles
+    // Partner recycler accounts. Authenticated users can view verified recyclers; recyclers manage their application
+    match /recycler_profiles/{recyclerId} {
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        resource.data.profile_id == request.auth.uid ||
+        resource.data.status == 'verified'
+      );
+
+      // Recyclers register with 'pending' status; only admin can verify
+      allow create: if isAuthenticated() &&
+        isValidRecyclerProfile(request.resource.data) &&
+        (
+          isAdmin() ||
+          (isOwner(request.resource.data.profile_id) && request.resource.data.status == 'pending')
+        );
+
+      // Recyclers can update company info, but cannot self-verify or change approval status
+      allow update: if (isAdmin() && isValidRecyclerProfile(request.resource.data)) ||
+        (isOwner(resource.data.profile_id) &&
+         isValidRecyclerProfile(request.resource.data) &&
+         areImmutableFieldsUnchanged(['id', 'profile_id', 'created_at', 'status', 'verified_at', 'verified_by']));
+
+      allow delete: if isAdmin();
+    }
+  }
+}

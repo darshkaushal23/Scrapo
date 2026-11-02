@@ -6,7 +6,7 @@ export default function ConsoleError({ reset }: { error: Error; reset: () => voi
   return (
     <ErrorState
       title="This screen hit a problem"
-      text="The prototype view failed to render. Retry it. No account data was sent."
+      text="This screen failed to render. Retry it. Your account data stays in Supabase."
       onRetry={reset}
     />
   );

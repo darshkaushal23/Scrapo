@@ -7,7 +7,7 @@ import type {
 import { cx } from "@/lib/cx";
 
 const control =
-  "w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none placeholder:text-muted/70 focus-visible:border-olive";
+  "w-full rounded-2xl border border-line bg-paper px-4 py-3 text-sm text-ink outline-none placeholder:text-muted focus-visible:border-lime";
 
 export function Field({
   label,

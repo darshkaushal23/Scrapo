@@ -3,11 +3,11 @@ import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { cx } from "@/lib/cx";
 
 const variants = {
-  lime: "bg-lime text-ink hover:bg-lime-deep",
-  olive: "bg-olive text-paper hover:bg-olive-deep",
-  ghost: "border border-olive/25 bg-card text-ink hover:border-olive hover:bg-white",
-  soft: "bg-white text-ink hover:bg-paper",
-  danger: "bg-danger text-white hover:bg-olive-deep",
+  lime: "bg-lime text-on-accent hover:bg-lime-deep",
+  olive: "border border-line bg-paper text-ink hover:border-lime",
+  ghost: "border border-line bg-card text-ink hover:border-lime hover:bg-paper",
+  soft: "bg-paper text-ink hover:bg-card",
+  danger: "bg-danger text-on-accent hover:bg-danger/80",
 } as const;
 
 const sizes = {

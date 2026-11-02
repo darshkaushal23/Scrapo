@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, Container, SectionHeading } from "@/components/ui/card";
 import { Pill } from "@/components/ui/feedback";
 import { categoryLabel, formatInr, formatNumber } from "@/lib/format";
-import { leaderboard, listings } from "@/lib/mock/data";
+import type { LeaderboardEntry, ListingRecord } from "@/lib/types";
 
 const steps = [
   {
@@ -17,7 +17,7 @@ const steps = [
   {
     n: "02",
     title: "See an estimate",
-    text: "A transparent prototype formula suggests a value, points, and whether a student could use it.",
+    text: "The estimate shows a value and the points a verified donation can earn.",
   },
   {
     n: "03",
@@ -45,8 +45,8 @@ const categories = [
   ["accessory", "Cables, audio, chargers"],
 ] as const;
 
-export function HomePage() {
-  const podium = [leaderboard[1], leaderboard[0], leaderboard[2]];
+export function HomePage({ listings, board }: { listings: ListingRecord[]; board: LeaderboardEntry[] }) {
+  const podium = board.slice(0, 3);
 
   return (
     <>
@@ -55,8 +55,8 @@ export function HomePage() {
         <Container className="grid items-center gap-10 py-14 lg:grid-cols-[1.05fr_0.95fr] lg:py-20">
           <div>
             <p className="text-sm font-semibold tracking-wide text-olive">Collect . Refurbish . Donate .</p>
-            <h1 className="mt-4 max-w-xl text-5xl leading-[1.02] font-medium tracking-tight text-ink sm:text-6xl lg:text-7xl">
-              Give electronics <span className="font-bold">a second life.</span>
+            <h1 className="mt-4 max-w-xl text-5xl leading-[1.02] font-extrabold tracking-tight text-ink sm:text-6xl lg:text-7xl">
+              Give electronics <span className="text-lime">a second life.</span>
             </h1>
             <p className="mt-6 max-w-xl text-lg leading-8 text-muted">
               Scrapo collects devices you have stopped using, gets the useful ones refurbished, and routes them to students. You earn points for keeping them out of a landfill.
@@ -71,9 +71,9 @@ export function HomePage() {
             </div>
             <dl className="mt-10 grid grid-cols-3 gap-3">
               {[
-                ["6", "Sample devices donated"],
-                ["₹18.4k", "Sample value kept in use"],
-                ["Grove", "Sample eco level"],
+                [formatNumber(listings.length), "Devices listed"],
+                [formatNumber(listings.filter((item) => item.donation === "donated").length), "Donated"],
+                [formatNumber(board[0]?.points ?? 0), "Top monthly points"],
               ].map(([value, label]) => (
                 <div key={label} className="rounded-3xl border border-line bg-card px-3 py-4">
                   <dt className="font-display text-xl font-medium text-ink sm:text-2xl">{value}</dt>
@@ -110,13 +110,13 @@ export function HomePage() {
           </Container>
         </section>
 
-        <section id="impact" className="scroll-mt-20 bg-olive py-16 text-paper">
+        <section id="impact" className="scroll-mt-20 py-16">
           <Container>
             <p className="text-sm font-semibold tracking-wide text-lime">Why it matters</p>
-            <h2 className="mt-3 max-w-3xl text-3xl font-medium tracking-tight sm:text-4xl">
+            <h2 className="mt-3 max-w-3xl text-3xl font-extrabold tracking-tight sm:text-4xl">
               Most electronics are retired long before they are <span className="font-bold">actually finished</span>
             </h2>
-            <p className="mt-4 max-w-2xl text-sm leading-6 text-paper/80">
+            <p className="mt-4 max-w-2xl text-sm leading-6 text-muted">
               These figures are published context, rounded for this page. They are not Scrapo measurements.
             </p>
             <dl className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -126,13 +126,13 @@ export function HomePage() {
                 ["1 laptop", "Can carry a student through a year"],
                 ["0 drawers", "Is not a recycling plan"],
               ].map(([value, label]) => (
-                <div key={label} className="rounded-3xl bg-olive-deep/50 p-5">
-                  <dt className="font-display text-4xl font-medium text-lime">{value}</dt>
-                  <dd className="mt-3 text-sm leading-6 text-paper/85">{label}</dd>
+                <div key={label} className="rounded-[20px] border border-line bg-card p-5">
+                  <dt className="font-display text-4xl font-extrabold text-lime">{value}</dt>
+                  <dd className="mt-3 text-sm leading-6 text-muted">{label}</dd>
                 </div>
               ))}
             </dl>
-            <p className="mt-6 text-xs leading-5 text-paper/60">
+            <p className="mt-6 text-xs leading-5 text-muted">
               Global tonnage and collection share follow the Global E-waste Monitor 2024, which reports 2022 data. The laptop and drawer lines are product statements, not statistics.
             </p>
           </Container>
@@ -176,6 +176,7 @@ export function HomePage() {
               text="Students ask for what they actually need. A listing can be a gift, a low student price, or already handed over."
             />
             <div className="mt-10 grid gap-4 md:grid-cols-3">
+              {listings.length === 0 ? <p className="text-sm text-muted">No refurbished devices are listed yet.</p> : null}
               {listings.slice(0, 3).map((item) => (
                 <Card key={item.id}>
                   <div className="flex items-center justify-between gap-3">
@@ -208,13 +209,14 @@ export function HomePage() {
                   A monthly board for people who <span className="font-bold">keep going</span>
                 </>
               }
-              text="Points come from listings, completed pickups, and donations. Eco levels mark lifetime progress. The board below is a sample for October 2026."
+              text="Points come from listings, completed pickups, and donations. Eco levels mark lifetime progress."
             />
             <div className="mt-10 grid items-end gap-4 md:grid-cols-3">
+              {podium.length === 0 ? <p className="text-sm text-muted">No points on the board yet.</p> : null}
               {podium.map((entry) => (
                 <Card
                   key={entry.rank}
-                  className={entry.rank === 1 ? "bg-lime md:-translate-y-4" : ""}
+                  className={entry.rank === 1 ? "border-lime md:-translate-y-4" : ""}
                 >
                   <p className="text-sm font-semibold text-olive">#{entry.rank}</p>
                   <h3 className="mt-3 text-2xl font-medium text-ink">{entry.name}</h3>
@@ -241,20 +243,20 @@ export function HomePage() {
 
         <section className="pb-8">
           <Container>
-            <div className="grid items-center gap-8 overflow-hidden rounded-[2rem] bg-lime px-6 py-10 sm:px-10 lg:grid-cols-[1fr_auto]">
+            <div className="grid items-center gap-8 overflow-hidden rounded-[20px] bg-lime px-6 py-10 text-on-accent sm:px-10 lg:grid-cols-[1fr_auto]">
               <div>
-                <h2 className="text-3xl font-medium tracking-tight text-ink sm:text-5xl">
-                  Ready to make an <span className="font-bold">impact?</span>
+                <h2 className="text-3xl font-extrabold tracking-tight text-on-accent sm:text-5xl">
+                  Ready to make an <span className="font-extrabold">impact?</span>
                 </h2>
-                <p className="mt-4 max-w-xl text-base leading-7 text-olive-deep">
-                  List one device. The estimate, the pickup, and the student match are all in this prototype so you can walk the whole path.
+                <p className="mt-4 max-w-xl text-base leading-7 text-on-accent/80">
+                  List one device. The estimate, the pickup, and the student match are saved to your Scrapo account.
                 </p>
                 <div className="mt-6 flex flex-col gap-3 sm:flex-row">
                   <Button href="/signup" variant="olive" size="lg">
-                    Create a prototype account
+                    Create an account
                   </Button>
                   <Button href="/dashboard" variant="soft" size="lg">
-                    Preview the dashboard
+                    Open the dashboard
                   </Button>
                 </div>
               </div>

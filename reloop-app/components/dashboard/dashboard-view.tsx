@@ -1,15 +1,17 @@
 "use client";
 
-import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { DemoBanner, EmptyState, ErrorState, PageSkeleton, Pill } from "@/components/ui/feedback";
+import { EmptyState, ErrorState, PageSkeleton, Pill } from "@/components/ui/feedback";
 import { formatDate, formatInr, formatNumber } from "@/lib/format";
-import { activity, dashboardSummary } from "@/lib/mock/data";
 import { usePrototype } from "@/lib/prototype/session";
-import { useDemoResource } from "@/lib/prototype/use-demo-resource";
+import { createClient } from "@/lib/supabase/client";
+import { loadDashboard } from "@/lib/supabase/records";
+import { useLive } from "@/lib/supabase/use-live";
 import type { ActivityItem } from "@/lib/types";
+import { DonorTrackerCard } from "@/components/tracker/donor-tracker-card";
+import { pickups } from "@/lib/mock/data";
 
 const filters: Array<{ id: "all" | ActivityItem["kind"] | "archive"; label: string }> = [
   { id: "all", label: "All" },
@@ -19,33 +21,37 @@ const filters: Array<{ id: "all" | ActivityItem["kind"] | "archive"; label: stri
   { id: "archive", label: "Archive" },
 ];
 
-export function DashboardView({ forceError = false }: { forceError?: boolean }) {
+export function DashboardView() {
   const { profile, ready } = usePrototype();
-  const demo = useDemoResource("dashboard", forceError);
+  const live = useLive("dashboard", () => loadDashboard(createClient()));
   const [filter, setFilter] = useState<(typeof filters)[number]["id"]>("all");
+  const activity = live.data?.activity;
+  const { drafts } = usePrototype();
+  const donorPickups = useMemo(() => [...drafts, ...pickups], [drafts]);
 
   const items = useMemo(() => {
+    const rows = activity ?? [];
     if (filter === "archive") return [];
-    if (filter === "all") return activity;
-    return activity.filter((item) => item.kind === filter);
-  }, [filter]);
+    if (filter === "all") return rows;
+    return rows.filter((item) => item.kind === filter);
+  }, [activity, filter]);
 
-  if (!ready || demo.phase === "loading") return <PageSkeleton />;
-  if (demo.phase === "error") {
+  if (!ready || live.phase === "loading") return <PageSkeleton />;
+  if (live.phase === "error") {
     return (
       <ErrorState
-        title="The dashboard sample did not load"
-        text="Retry to show the demo profile. This does not contact Scrapo."
-        onRetry={demo.retry}
+        title="The dashboard did not load"
+        text={live.message}
+        onRetry={live.retry}
       />
     );
   }
 
   const stats = [
-    { label: "Donated devices", value: String(dashboardSummary.donatedCount), hint: "Sample history for this profile" },
-    { label: "Estimated value", value: formatInr(dashboardSummary.estimatedValue), hint: "Sum of the donated sample devices" },
-    { label: "Reward points", value: formatNumber(profile.pointsMonth), hint: "This month, still a sample" },
-    { label: "Leaderboard", value: `#${profile.rank}`, hint: "October 2026 sample board" },
+    { label: "Donated devices", value: String(live.data?.donatedCount ?? 0), hint: "Devices marked donated or completed" },
+    { label: "Estimated value", value: formatInr(live.data?.estimatedValue ?? 0), hint: "Sum of those devices" },
+    { label: "Reward points", value: formatNumber(profile.pointsMonth), hint: "This month" },
+    { label: "Leaderboard", value: profile.rank ? `#${profile.rank}` : "—", hint: "Rank by points this month" },
   ];
 
   return (
@@ -53,38 +59,32 @@ export function DashboardView({ forceError = false }: { forceError?: boolean }) 
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
           <p className="text-sm font-semibold text-olive">
-            {profile.personalized ? "Prototype session" : "Sample profile"}
+            {profile.personalized ? profile.role : "Sign in to see your records"}
           </p>
-          <h1 className="mt-1 text-3xl font-medium tracking-tight sm:text-4xl">
-            Hello, {profile.name.split(" ")[0]}
+          <h1 className="mt-1 text-3xl font-extrabold tracking-tight sm:text-4xl">
+            Hello{profile.name ? `, ${profile.name.split(" ")[0]}` : ""}
           </h1>
           <p className="mt-2 max-w-xl text-sm leading-6 text-muted">
             {profile.role === "student"
-              ? "Your student tools live in the marketplace. The numbers here still belong to the shared demo donor history."
+              ? "Your student tools live in the marketplace. Counts here come from your account."
               : "Track what you have handed over, what it was worth, and where you sit on the monthly board."}
           </p>
         </div>
         <Button href="/devices/new">List a device</Button>
       </div>
 
-      <DemoBanner>
-        {profile.personalized
-          ? `You are signed in on this device as ${profile.name}. The counts below are still the Ananya Iyer sample, not a personal history.`
-          : "Showing the Ananya Iyer sample. Switch role in the header, or log in to put your name on it."}{" "}
-        <Link href="/dashboard?state=error" className="font-semibold text-lime underline">
-          Preview the error state
-        </Link>
-      </DemoBanner>
-
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Summary">
-        {stats.map((stat) => (
-          <Card key={stat.label}>
-            <p className="text-sm font-semibold text-muted">{stat.label}</p>
-            <p className="mt-2 font-display text-3xl font-medium text-ink">{stat.value}</p>
-            <p className="mt-2 text-xs leading-5 text-muted">{stat.hint}</p>
+        {stats.map((stat, index) => (
+          <Card key={stat.label} className={index === 0 ? "bg-lime text-on-accent sm:col-span-2 xl:col-span-2" : ""}>
+            <p className={index === 0 ? "text-sm font-semibold text-on-accent/70" : "text-sm font-semibold text-muted"}>{stat.label}</p>
+            <p className={index === 0 ? "mt-3 font-display text-5xl font-extrabold text-on-accent" : "mt-2 font-display text-3xl font-extrabold text-ink"}>{stat.value}</p>
+            <p className={index === 0 ? "mt-2 text-xs leading-5 text-on-accent/70" : "mt-2 text-xs leading-5 text-muted"}>{stat.hint}</p>
           </Card>
         ))}
       </section>
+
+      {/* Scrapo AI Tracker: Donated Devices Live Journey */}
+      <DonorTrackerCard pickups={donorPickups} />
 
       <section>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
@@ -97,7 +97,7 @@ export function DashboardView({ forceError = false }: { forceError?: boolean }) 
                 aria-pressed={filter === item.id}
                 className={
                   filter === item.id
-                    ? "rounded-full bg-olive px-3 py-1.5 text-xs font-semibold text-paper"
+                    ? "rounded-full bg-olive px-3 py-1.5 text-xs font-semibold text-on-accent"
                     : "rounded-full border border-line bg-card px-3 py-1.5 text-xs font-semibold"
                 }
                 onClick={() => setFilter(item.id)}
@@ -109,12 +109,16 @@ export function DashboardView({ forceError = false }: { forceError?: boolean }) 
         </div>
         {items.length === 0 ? (
           <EmptyState
-            title="Nothing in the archive"
-            text="The sample profile has no archived activity. The other filters still have pickups, rewards, and donations."
+            title={filter === "archive" ? "Nothing in the archive" : "No activity yet"}
+            text="Pickups and reward events for this account show up here."
             action={
-              <Button variant="ghost" onClick={() => setFilter("all")}>
-                Show all activity
-              </Button>
+              filter === "all" ? (
+                <Button href="/devices/new">List a device</Button>
+              ) : (
+                <Button variant="ghost" onClick={() => setFilter("all")}>
+                  Show all activity
+                </Button>
+              )
             }
           />
         ) : (
@@ -130,13 +134,9 @@ export function DashboardView({ forceError = false }: { forceError?: boolean }) 
                     <h3 className="mt-2 text-base font-semibold text-ink">{item.title}</h3>
                     <p className="text-sm text-muted">{item.detail}</p>
                   </div>
-                  {item.kind === "pickup" ? (
-                    <Button
-                      href={item.id === "ac-3" ? "/pickups/pk-2033" : "/pickups/pk-2041"}
-                      variant="ghost"
-                      size="sm"
-                    >
-                      Track pickup
+                  {"href" in item && item.href ? (
+                    <Button href={item.href} variant="ghost" size="sm">
+                      {"certificate" in item && item.certificate ? "View certificate" : "Track pickup"}
                     </Button>
                   ) : null}
                 </Card>

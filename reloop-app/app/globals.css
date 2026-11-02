@@ -1,42 +1,49 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f3f6d8;
-  --foreground: #1c1e14;
-  --card: #fffef6;
-  --lime: #dde671;
-  --lime-deep: #c9d44a;
-  --olive: #61671b;
-  --olive-deep: #3e4212;
-  --ink: #1a1c12;
-  --muted: #4e5338;
-  --line: #d4dcb0;
-  --danger: #8e3328;
-  --paper: #f7f8e6;
+  --background: #080908;
+  --foreground: #f5f5f2;
+  --card: #171917;
+  --sidebar: #0c0d0c;
+  --lime: #39E75F;
+  --lime-deep: #2FCF54;
+  --olive: #39E75F;
+  --olive-deep: #2FCF54;
+  --ink: #f5f5f2;
+  --on-accent: #080908;
+  --muted: #92958e;
+  --line: #292c27;
+  --danger: #f16d6d;
+  --success: #36d399;
+  --warning: #f5b942;
+  --paper: #1d201c;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
+  --color-sidebar: var(--sidebar);
   --color-lime: var(--lime);
   --color-lime-deep: var(--lime-deep);
   --color-olive: var(--olive);
   --color-olive-deep: var(--olive-deep);
   --color-ink: var(--ink);
+  --color-on-accent: var(--on-accent);
   --color-muted: var(--muted);
   --color-line: var(--line);
   --color-danger: var(--danger);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
   --color-paper: var(--paper);
   --font-sans: var(--font-manrope);
-  --font-display: var(--font-unbounded);
+  --font-display: var(--font-manrope);
 }
 
 body {
-  background:
-    radial-gradient(900px 420px at 110% -10%, rgb(221 230 113 / 0.9), transparent 58%),
-    radial-gradient(640px 360px at -10% 8%, rgb(97 103 27 / 0.08), transparent 60%),
-    var(--background);
+  background-color: var(--background);
+  background-image: radial-gradient(circle, rgba(57, 231, 95, 0.34) 1.25px, transparent 1.4px);
+  background-size: 16px 16px;
   color: var(--foreground);
   font-family: var(--font-manrope), sans-serif;
 }
@@ -44,17 +51,23 @@ body {
 h1,
 h2,
 h3 {
-  font-family: var(--font-unbounded), sans-serif;
+  font-family: var(--font-manrope), sans-serif;
+  letter-spacing: -0.03em;
 }
 
 ::selection {
-  background: #dde671;
-  color: #1a1c12;
+  background: #39E75F;
+  color: #080908;
 }
 
 :focus-visible {
-  outline: 2px solid #3e4212;
+  outline: 2px solid #39E75F;
   outline-offset: 3px;
+}
+
+select option {
+  background: #171917;
+  color: #f5f5f2;
 }
 
 @media (prefers-reduced-motion: no-preference) {

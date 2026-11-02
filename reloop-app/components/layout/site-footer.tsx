@@ -14,12 +14,12 @@ const explore = [
 
 export function SiteFooter() {
   return (
-    <footer className="mt-20 bg-olive-deep text-paper">
+    <footer className="mt-20 border-t border-line bg-sidebar text-ink">
       <Container className="grid gap-10 py-14 md:grid-cols-[1.4fr_1fr_1fr]">
         <div>
           <Logo tone="lime" />
-          <p className="mt-4 max-w-sm text-sm leading-6 text-paper/80">
-            Give electronics a second life. Scrapo is a prototype for collection, refurbishment, student donation, and rewards.
+          <p className="mt-4 max-w-sm text-sm leading-6 text-muted">
+            Give electronics a second life. Scrapo collects devices, matches students, and records verified rewards.
           </p>
         </div>
         <div>
@@ -33,7 +33,7 @@ export function SiteFooter() {
           </ul>
         </div>
         <div>
-          <h2 className="text-sm font-semibold tracking-wide text-lime">Prototype screens</h2>
+          <h2 className="text-sm font-semibold tracking-wide text-lime">Workspace</h2>
           <ul className="mt-4 space-y-2 text-sm">
             {explore.map((item) => (
               <li key={item.href}>
@@ -43,9 +43,9 @@ export function SiteFooter() {
           </ul>
         </div>
       </Container>
-      <div className="border-t border-white/10">
-        <Container className="py-5 text-xs text-paper/70">
-          Sample figures on the marketing page are published context or clearly marked prototype numbers. Scrapo does not send them to a server.
+      <div className="border-t border-line">
+        <Container className="py-5 text-xs text-muted">
+          Listed devices, rankings, and points on this site come from Supabase.
         </Container>
       </div>
     </footer>

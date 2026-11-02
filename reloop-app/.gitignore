@@ -13,6 +13,9 @@
 # testing
 /coverage
 
+# durable local Trust & Safety fallback store (not for production secrets)
+.data/
+
 # next.js
 /.next/
 /out/
@@ -40,3 +43,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+.vercel
+.env*

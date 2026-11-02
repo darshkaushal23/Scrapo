@@ -10,13 +10,13 @@ export const metadata: Metadata = {
 export default function AuthLayout({ children }: { children: ReactNode }) {
   return (
     <div className="grid min-h-screen lg:grid-cols-[0.9fr_1.1fr]">
-      <aside className="relative hidden overflow-hidden bg-olive px-10 py-10 text-paper lg:block">
-        <Logo tone="lime" />
-        <p className="mt-16 max-w-sm font-display text-4xl leading-tight font-medium">
-          Give electronics a second life.
+      <aside className="relative hidden overflow-hidden border-r border-line bg-sidebar px-10 py-10 text-ink lg:block">
+        <Logo />
+        <p className="mt-16 max-w-sm text-4xl leading-tight font-extrabold">
+          Give electronics <span className="text-lime">a second life.</span>
         </p>
-        <p className="mt-4 max-w-sm text-sm leading-6 text-paper/80">
-          Accounts on this prototype live in your browser. A password is checked for length only. It is never sent anywhere.
+        <p className="mt-4 max-w-sm text-sm leading-6 text-muted">
+          Sign in with the account stored in Supabase. The password is checked there, not stored in this browser.
         </p>
         <p className="absolute right-8 bottom-8 text-sm text-lime">Collect . Refurbish . Donate .</p>
       </aside>

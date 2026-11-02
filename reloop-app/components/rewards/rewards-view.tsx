@@ -1,53 +1,49 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { DemoBanner, EmptyState, PageSkeleton, Pill } from "@/components/ui/feedback";
+import { EmptyState, ErrorState, PageSkeleton, Pill } from "@/components/ui/feedback";
 import { formatDate, formatNumber } from "@/lib/format";
-import { ecoLevels, leaderboard, rewardHistory } from "@/lib/mock/data";
+import { ecoLevels } from "@/lib/mock/data";
 import { usePrototype } from "@/lib/prototype/session";
-import { useDemoResource } from "@/lib/prototype/use-demo-resource";
+import { createClient } from "@/lib/supabase/client";
+import { loadRewards } from "@/lib/supabase/records";
+import { useLive } from "@/lib/supabase/use-live";
 
 export function RewardsView() {
-  const { ready, profile, admin } = usePrototype();
-  const demo = useDemoResource("rewards");
+  const { ready, profile } = usePrototype();
+  const live = useLive("rewards", () => loadRewards(createClient()));
   const [monthOnly, setMonthOnly] = useState(false);
-  const board = leaderboard.map((entry) =>
-    entry.highlight ? { ...entry, name: profile.name, city: profile.city } : entry,
-  );
+  const board = live.data?.board ?? [];
   const winners = board.slice(0, 3);
-  const history = useMemo(
-    () => [...admin.extraRewards, ...rewardHistory],
-    [admin.extraRewards],
-  );
-  const visibleHistory = monthOnly ? [] : history;
+  const history = live.data?.history ?? [];
+  const results = live.data?.results ?? [];
+  const monthKey = new Date().toISOString().slice(0, 7);
+  const monthName = new Date().toLocaleDateString("en-IN", { month: "long", timeZone: "UTC" });
+  const visibleHistory = monthOnly ? history.filter((event) => event.at.startsWith(monthKey)) : history;
   const nextLevel = ecoLevels.find((level) => level.from > profile.pointsLifetime);
   const currentLevel = [...ecoLevels].reverse().find((level) => profile.pointsLifetime >= level.from) ?? ecoLevels[0];
   const progress = nextLevel
     ? Math.min(100, Math.round((profile.pointsLifetime / nextLevel.from) * 100))
     : 100;
 
-  if (!ready || demo.phase === "loading") return <PageSkeleton />;
+  if (!ready || live.phase === "loading") return <PageSkeleton />;
+  if (live.phase === "error") return <ErrorState title="Rewards did not load" text={live.message} onRetry={live.retry} />;
 
   return (
     <div className="mx-auto max-w-6xl space-y-8">
       <div>
         <p className="text-sm font-semibold text-olive">Scrapo Rewards</p>
-        <h1 className="mt-1 text-3xl font-medium tracking-tight sm:text-4xl">October board</h1>
+        <h1 className="mt-1 text-3xl font-extrabold tracking-tight sm:text-4xl">{monthName} board</h1>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">
-          Monthly points decide the podium. Lifetime points decide the eco level. Both numbers on this page are samples.
+          Monthly points decide the podium. Lifetime points decide the eco level.
         </p>
       </div>
-      <DemoBanner>
-        {admin.winnersPublished
-          ? "Winners were marked published in this browser. The names are still the sample board."
-          : "Top three are a sample. Publishing them is an admin action and stays on this device."}
-      </DemoBanner>
 
       <section className="grid gap-3 md:grid-cols-3">
         {winners.map((entry) => (
-          <Card key={entry.rank} className={entry.rank === 1 ? "bg-lime md:-translate-y-2" : ""}>
+          <Card key={entry.rank} className={entry.rank === 1 ? "border-lime md:-translate-y-2" : ""}>
             <p className="text-sm font-semibold text-olive">Winner #{entry.rank}</p>
             <h2 className="mt-2 text-2xl font-medium">{entry.name}</h2>
             <p className="text-sm text-muted">{entry.city}</p>
@@ -94,7 +90,7 @@ export function RewardsView() {
             <p className="mt-2 text-xs text-muted">
               {nextLevel
                 ? `${formatNumber(nextLevel.from - profile.pointsLifetime)} lifetime points to ${nextLevel.name}.`
-                : "Top of the sample levels."}
+                : "Top eco level."}
             </p>
           </Card>
           <Card>
@@ -118,13 +114,13 @@ export function RewardsView() {
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-xl font-medium">Reward history</h2>
           <Button variant={monthOnly ? "olive" : "ghost"} size="sm" onClick={() => setMonthOnly((value) => !value)}>
-            {monthOnly ? "Show the sample history" : "Show an empty month"}
+            {monthOnly ? "All history" : "This month"}
           </Button>
         </div>
         {visibleHistory.length === 0 ? (
           <EmptyState
             title="No rewards in this view"
-            text="The empty month is a filter on the prototype. The sample history is still available."
+            text="Verified donations are added here. Nothing in this account matches the filter."
           />
         ) : (
           <ul className="space-y-3">
@@ -133,11 +129,33 @@ export function RewardsView() {
                 <Card className="flex items-center justify-between gap-3">
                   <div>
                     <p className="text-sm font-semibold">{event.label}</p>
-                    <p className="text-xs text-muted">
-                      {formatDate(event.at)} · {event.source === "session" ? "Added in this browser" : "Demo sample"}
-                    </p>
+                    <p className="text-xs text-muted">{formatDate(event.at)}</p>
                   </div>
                   <p className="font-display text-xl text-olive">+{formatNumber(event.points)}</p>
+                </Card>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section>
+        <h2 className="mb-3 text-xl font-medium">Previous monthly results</h2>
+        {results.length === 0 ? (
+          <EmptyState
+            title="No earlier results"
+            text="Finalized months show up here after an admin publishes the top three."
+          />
+        ) : (
+          <ul className="space-y-3">
+            {results.map((result) => (
+              <li key={`${result.month}-${result.rank}`}>
+                <Card className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold">#{result.rank} {result.full_name}</p>
+                    <p className="text-xs text-muted">{formatDate(result.month)} · {result.city || "City not set"}</p>
+                  </div>
+                  <p className="font-display text-xl text-olive">{formatNumber(result.points)}</p>
                 </Card>
               </li>
             ))}

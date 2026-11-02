@@ -64,7 +64,17 @@ export function estimateDevice(input: ValuationInput): Valuation {
       ? "parts recovery"
       : "student donation";
   const points =
-    Math.round(value / 25) + (reuse === "student donation" ? 80 : 30);
+    input.working === "not_working" || input.condition === "poor"
+      ? 50
+      : input.category === "phone" && input.working === "working"
+        ? 100
+        : input.category === "laptop" && input.working === "working"
+          ? 150
+          : input.category === "tablet"
+            ? 100
+            : input.category === "accessory"
+              ? 30
+              : 0;
 
   return {
     value,
@@ -73,7 +83,7 @@ export function estimateDevice(input: ValuationInput): Valuation {
     lines: [
       {
         label: "Category baseline",
-        detail: `A ${input.category} starts from a fixed prototype baseline.`,
+        detail: `A ${input.category} starts from a fixed baseline.`,
       },
       {
         label: "Age",

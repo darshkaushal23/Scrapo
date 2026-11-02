@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Logo } from "@/components/brand/logo";
 import { buttonClass } from "@/components/ui/button";
 import { Container } from "@/components/ui/card";
+import { usePrototype } from "@/lib/prototype/session";
 
 const links = [
   { href: "/#how", label: "How it works" },
@@ -16,25 +17,40 @@ const links = [
 
 export function SiteHeader() {
   const [open, setOpen] = useState(false);
+  const { ready, profile, signOut } = usePrototype();
+  const isLoggedIn = ready && Boolean(profile.name);
 
   return (
-    <header className="sticky top-0 z-40 border-b border-line/80 bg-background/85 backdrop-blur-md">
+    <header className="sticky top-0 z-40 border-b border-line bg-background">
       <Container className="flex h-16 items-center justify-between gap-4">
         <Logo />
-        <nav className="hidden items-center gap-6 text-sm font-semibold text-ink lg:flex" aria-label="Primary">
+        <nav className="hidden items-center gap-6 text-sm font-semibold text-muted lg:flex" aria-label="Primary">
           {links.map((link) => (
-            <Link key={link.href} href={link.href} className="hover:text-olive">
+            <Link key={link.href} href={link.href} className="hover:text-lime">
               {link.label}
             </Link>
           ))}
         </nav>
         <div className="hidden items-center gap-2 lg:flex">
-          <Link href="/login" className={buttonClass("ghost", "sm")}>
-            Log in
-          </Link>
-          <Link href="/signup" className={buttonClass("lime", "sm")}>
-            Get started
-          </Link>
+          {isLoggedIn ? (
+            <>
+              <Link href="/dashboard" className={buttonClass("lime", "sm")}>
+                Go to Dashboard
+              </Link>
+              <button type="button" onClick={signOut} className={buttonClass("ghost", "sm")}>
+                Sign out
+              </button>
+            </>
+          ) : (
+            <>
+              <Link href="/login" className={buttonClass("ghost", "sm")}>
+                Log in
+              </Link>
+              <Link href="/signup" className={buttonClass("lime", "sm")}>
+                Get started
+              </Link>
+            </>
+          )}
         </div>
         <button
           type="button"
@@ -62,12 +78,32 @@ export function SiteHeader() {
                 {link.label}
               </Link>
             ))}
-            <Link href="/login" className={buttonClass("ghost", "md", "mt-2")} onClick={() => setOpen(false)}>
-              Log in
-            </Link>
-            <Link href="/signup" className={buttonClass("lime", "md")} onClick={() => setOpen(false)}>
-              Get started
-            </Link>
+            {isLoggedIn ? (
+              <>
+                <Link href="/dashboard" className={buttonClass("lime", "md", "mt-2")} onClick={() => setOpen(false)}>
+                  Go to Dashboard
+                </Link>
+                <button
+                  type="button"
+                  className={buttonClass("ghost", "md")}
+                  onClick={() => {
+                    signOut();
+                    setOpen(false);
+                  }}
+                >
+                  Sign out
+                </button>
+              </>
+            ) : (
+              <>
+                <Link href="/login" className={buttonClass("ghost", "md", "mt-2")} onClick={() => setOpen(false)}>
+                  Log in
+                </Link>
+                <Link href="/signup" className={buttonClass("lime", "md")} onClick={() => setOpen(false)}>
+                  Get started
+                </Link>
+              </>
+            )}
           </Container>
         </div>
       ) : null}

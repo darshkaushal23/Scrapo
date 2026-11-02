@@ -17,22 +17,13 @@ export function Logo({
   tone?: "olive" | "lime";
   className?: string;
 }) {
-  const ink = tone === "lime" ? "text-lime" : "text-olive";
-  const border = tone === "lime" ? "border-lime/80" : "border-olive";
+  const ink = tone === "lime" ? "text-lime" : "text-ink";
   return (
-    <Link
-      href="/"
-      aria-label="Scrapo home"
-      className={cx("inline-flex rounded-full", className)}
-    >
-      <span className={cx("inline-flex items-center rounded-full border-2 py-1 pl-3.5 pr-1.5", border)}>
-        <span className={cx("font-display text-[1.05rem] leading-none font-medium tracking-tight", ink)}>
-          scrapo
-        </span>
-        <span className="ml-2 grid h-7 w-7 place-items-center rounded-full bg-lime text-olive">
-          <LoopMark />
-        </span>
+    <Link href="/" aria-label="Scrapo home" className={cx("inline-flex items-center gap-2", className)}>
+      <span className="grid h-8 w-8 place-items-center rounded-full bg-lime text-on-accent">
+        <LoopMark />
       </span>
+      <span className={cx("font-sans text-lg leading-none font-extrabold tracking-tight", ink)}>scrapo</span>
     </Link>
   );
 }

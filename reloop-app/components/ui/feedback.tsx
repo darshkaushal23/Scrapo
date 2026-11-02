@@ -10,9 +10,9 @@ export function Pill({
   tone?: "lime" | "olive" | "paper" | "danger";
 }) {
   const tones = {
-    lime: "bg-lime text-ink",
-    olive: "bg-olive text-paper",
-    paper: "bg-paper text-olive",
+    lime: "bg-lime text-on-accent",
+    olive: "bg-lime text-on-accent",
+    paper: "bg-paper text-muted",
     danger: "bg-danger/10 text-danger",
   };
   return (
@@ -29,10 +29,10 @@ export function Pill({
 
 export function DemoBanner({ children }: { children?: ReactNode }) {
   return (
-    <div className="rounded-2xl border border-olive/15 bg-olive px-4 py-3 text-sm leading-6 text-paper">
+    <div className="rounded-2xl border border-line bg-paper px-4 py-3 text-sm leading-6 text-ink">
       <span className="font-semibold text-lime">Demo data.</span>{" "}
       {children ??
-        "Names, points, prices, and pickups on this screen are prototype samples stored in this browser. They are not live records."}
+        "Names, points, prices, and pickups on this screen come from Supabase."}
     </div>
   );
 }
@@ -40,15 +40,15 @@ export function DemoBanner({ children }: { children?: ReactNode }) {
 export function PageSkeleton({ cards = 4 }: { cards?: number }) {
   return (
     <div className="space-y-4" aria-busy="true" aria-live="polite">
-      <span className="sr-only">Loading demo data</span>
-      <div className="h-8 w-56 animate-pulse rounded-full bg-olive/10" />
-      <div className="h-16 animate-pulse rounded-2xl bg-olive/15" />
+      <span className="sr-only">Loading</span>
+      <div className="h-8 w-56 animate-pulse rounded-full bg-paper" />
+      <div className="h-16 animate-pulse rounded-2xl bg-paper" />
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {Array.from({ length: cards }, (_, index) => (
-          <div key={index} className="h-28 animate-pulse rounded-3xl bg-white/80" />
+          <div key={index} className="h-28 animate-pulse rounded-[20px] bg-paper" />
         ))}
       </div>
-      <div className="h-72 animate-pulse rounded-3xl bg-white/80" />
+      <div className="h-72 animate-pulse rounded-[20px] bg-paper" />
     </div>
   );
 }
@@ -63,8 +63,8 @@ export function EmptyState({
   action?: ReactNode;
 }) {
   return (
-    <div className="rounded-3xl border border-dashed border-olive/30 bg-white/60 px-6 py-12 text-center">
-      <div className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-full bg-lime text-olive">
+    <div className="rounded-[20px] border border-dashed border-line bg-card px-6 py-12 text-center">
+      <div className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-full bg-lime text-on-accent">
         <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
           <circle cx="11" cy="11" r="6" />
           <path d="M16 16l4 4" strokeLinecap="round" />
@@ -78,8 +78,8 @@ export function EmptyState({
 }
 
 export function ErrorState({
-  title = "This sample did not load",
-  text = "The prototype could not show this view. Try again. Nothing was sent to a server.",
+  title = "This view did not load",
+  text = "Try again. If you are signed in, your records stay in Supabase.",
   onRetry,
 }: {
   title?: string;
@@ -87,7 +87,7 @@ export function ErrorState({
   onRetry?: () => void;
 }) {
   return (
-    <div className="rounded-3xl border border-danger/20 bg-white px-6 py-12 text-center" role="alert">
+    <div className="rounded-[20px] border border-danger/30 bg-card px-6 py-12 text-center" role="alert">
       <div className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-full bg-danger/10 text-danger">
         <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
           <path d="M12 8v5" strokeLinecap="round" />

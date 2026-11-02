@@ -29,13 +29,18 @@ export const workingLabel: Record<WorkingStatus, string> = {
 };
 
 export const statusLabel: Record<PickupStatus, string> = {
-  requested: "Requested",
-  scheduled: "Scheduled",
-  collected: "Collected",
-  inspected: "Inspected",
+  requested: "Request Submitted",
+  assigned: "Partner Assigned",
+  scheduled: "Pickup Scheduled",
+  collected: "Device Collected",
+  inspected: "Device Inspection",
   processing: "Processing",
   donated: "Donated",
   completed: "Completed",
+  rejected: "Rejected",
+  cancelled: "Cancelled",
+  pickup_failed: "Pickup Failed",
+  awaiting_rescheduling: "Awaiting Rescheduling",
 };
 
 export const roleLabel: Record<Role, string> = {

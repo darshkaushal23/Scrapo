@@ -11,7 +11,7 @@ export function Card({
   return (
     <div
       className={cx(
-        "rounded-3xl border border-line bg-card p-5 shadow-[0_18px_50px_-36px_rgba(62,66,18,0.7)]",
+        "rounded-[20px] border border-line bg-card p-5 shadow-none",
         className,
       )}
     >
@@ -34,7 +34,7 @@ export function SectionHeading({
       {eyebrow ? (
         <p className="mb-3 text-sm font-semibold tracking-wide text-olive">{eyebrow}</p>
       ) : null}
-      <h2 className="text-3xl font-medium tracking-tight text-ink sm:text-4xl">{title}</h2>
+      <h2 className="text-3xl font-bold tracking-tight text-ink sm:text-4xl">{title}</h2>
       {text ? <p className="mt-4 text-base leading-7 text-muted">{text}</p> : null}
     </div>
   );

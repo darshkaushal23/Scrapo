@@ -5,112 +5,174 @@ import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Field, SelectInput, TextInput } from "@/components/ui/field";
+import { accountEmailFromName, sanitizeSelfAssignedRole } from "@/lib/auth/identity";
+import {
+  loginFirebaseEmailUser,
+  registerFirebaseEmailUser,
+  signInWithFirebaseCustomToken,
+} from "@/lib/firebase/auth-service";
 import { homeForRole } from "@/lib/prototype/model";
 import { usePrototype } from "@/lib/prototype/session";
 import type { Role } from "@/lib/types";
 
-function nameFromEmail(email: string) {
-  const local = email.split("@")[0] ?? "Guest";
-  return local
-    .split(/[._-]+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
 export function LoginForm() {
   const router = useRouter();
   const { signIn } = usePrototype();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [role, setRole] = useState<Role>("donor");
-  const [show, setShow] = useState(false);
-  const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
 
-  function submit(event: FormEvent) {
+  const [name, setName] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [errors, setErrors] = useState<{ name?: string; password?: string; general?: string }>({});
+  const [loading, setLoading] = useState(false);
+
+  async function submit(event: FormEvent) {
     event.preventDefault();
-    const next: { email?: string; password?: string } = {};
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) next.email = "Enter an email address.";
-    if (password.length < 8) next.password = "Use at least 8 characters. It stays on this page.";
-    setErrors(next);
-    if (Object.keys(next).length) return;
-    signIn({ name: nameFromEmail(email), email, role });
-    router.push(homeForRole(role));
+    const nextErrors: typeof errors = {};
+    if (!name.trim()) nextErrors.name = "Please enter your account name.";
+    if (!password.trim()) nextErrors.password = "Please enter your password.";
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) return;
+
+    setLoading(true);
+    try {
+      const email = accountEmailFromName(name.trim());
+      const res = await loginFirebaseEmailUser(email, password.trim());
+      setLoading(false);
+
+      if (!res.success || !res.user) {
+        setErrors({ general: res.error || "Invalid name or password." });
+        return;
+      }
+
+      const profile = res.profile;
+      signIn({
+        id: res.user.uid,
+        name: profile?.name || name.trim(),
+        email: profile?.email || email,
+        role: profile?.role || "donor",
+        city: profile?.city || "Bengaluru",
+        verificationStatus: profile?.verificationStatus,
+      });
+
+      router.push(homeForRole(profile?.role || "donor"));
+    } catch (err) {
+      setLoading(false);
+      setErrors({
+        general: err instanceof Error ? err.message : "Sign-in error. Please try again.",
+      });
+    }
   }
 
-  function enterDemo(nextRole: Role, name: string, emailAddress: string) {
-    signIn({ name, email: emailAddress, role: nextRole });
-    router.push(homeForRole(nextRole));
+  function quickFill(presetName: string) {
+    setName(presetName);
+    setPassword("password123");
+    setErrors({});
   }
 
   return (
     <div>
-      <h1 className="text-4xl font-medium tracking-tight">Log in</h1>
+      <h1 className="text-4xl font-extrabold tracking-tight">Log in</h1>
       <p className="mt-3 text-sm leading-6 text-muted">
-        This form does not contact a server. Pick a role to open the matching prototype desk.
+        Sign in with your Scrapo account name and password via Firebase Authentication.
       </p>
-      <form className="mt-8 space-y-4" onSubmit={submit} noValidate>
-        <Field label="Email" htmlFor="email" error={errors.email}>
+
+      {errors.general && (
+        <div className="mt-4 rounded-2xl border border-danger/30 bg-danger/10 p-3 text-xs font-semibold text-danger">
+          {errors.general}
+        </div>
+      )}
+
+      <form className="mt-6 space-y-4" onSubmit={submit} noValidate>
+        <Field label="Account Name" htmlFor="login-name" error={errors.name}>
           <TextInput
-            id="email"
-            type="email"
-            autoComplete="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
+            id="login-name"
+            autoComplete="username"
+            placeholder="e.g. Darsh Kaushal or Ananya Iyer"
+            value={name}
+            onChange={(e) => {
+              setName(e.target.value);
+              setErrors((prev) => ({ ...prev, name: "", general: "" }));
+            }}
           />
         </Field>
-        <Field label="Password" htmlFor="password" error={errors.password} hint="Checked for length only.">
+
+        <Field label="Password" htmlFor="login-password" error={errors.password}>
           <div className="relative">
             <TextInput
-              id="password"
-              type={show ? "text" : "password"}
+              id="login-password"
+              type={showPassword ? "text" : "password"}
               autoComplete="current-password"
+              placeholder="Your password"
               value={password}
-              onChange={(event) => setPassword(event.target.value)}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                setErrors((prev) => ({ ...prev, password: "", general: "" }));
+              }}
               className="pr-20"
             />
             <button
               type="button"
-              className="absolute top-1/2 right-3 -translate-y-1/2 text-xs font-semibold text-olive"
-              onClick={() => setShow((value) => !value)}
+              className="absolute top-1/2 right-3 -translate-y-1/2 text-xs font-semibold text-olive hover:underline"
+              onClick={() => setShowPassword((v) => !v)}
             >
-              {show ? "Hide" : "Show"}
+              {showPassword ? "Hide" : "Show"}
             </button>
           </div>
         </Field>
-        <Field label="Open as" htmlFor="role">
-          <SelectInput id="role" value={role} onChange={(event) => setRole(event.target.value as Role)}>
-            <option value="donor">Donor</option>
-            <option value="student">Student</option>
-            <option value="recycler">Recycler</option>
-            <option value="admin">Admin preview</option>
-          </SelectInput>
-        </Field>
-        <Button type="submit" className="w-full" size="lg">
-          Continue
+
+        <Button type="submit" className="w-full" size="lg" disabled={loading}>
+          {loading ? "Signing in..." : "Log in"}
         </Button>
       </form>
-      <div className="mt-4 flex items-center justify-between text-sm">
-        <Link href="/forgot-password" className="font-semibold text-olive">
-          Forgot password
+
+      <div className="mt-8 rounded-2xl border border-line bg-card/60 p-4">
+        <p className="text-xs font-bold uppercase tracking-wider text-muted">Quick Demo Login</p>
+        <p className="mt-1 text-[11px] text-muted">
+          Demo accounts must exist in Firebase Auth. Create them once via Sign up or Admin bootstrap.
+        </p>
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => quickFill("Ananya Iyer")}
+            className="rounded-xl border border-line bg-paper px-3 py-2 text-left text-xs transition hover:border-olive hover:bg-lime/10"
+          >
+            <div className="font-semibold text-ink">Ananya Iyer</div>
+            <div className="text-[11px] text-muted">Donor Desk</div>
+          </button>
+          <button
+            type="button"
+            onClick={() => quickFill("Arjun Deshpande")}
+            className="rounded-xl border border-line bg-paper px-3 py-2 text-left text-xs transition hover:border-olive hover:bg-lime/10"
+          >
+            <div className="font-semibold text-ink">Arjun Deshpande</div>
+            <div className="text-[11px] text-muted">Student Desk</div>
+          </button>
+          <button
+            type="button"
+            onClick={() => quickFill("GreenCircuit Collective")}
+            className="rounded-xl border border-line bg-paper px-3 py-2 text-left text-xs transition hover:border-olive hover:bg-lime/10"
+          >
+            <div className="font-semibold text-ink">GreenCircuit</div>
+            <div className="text-[11px] text-muted">Recycler Desk</div>
+          </button>
+          <button
+            type="button"
+            onClick={() => quickFill("Leela Thomas")}
+            className="rounded-xl border border-line bg-paper px-3 py-2 text-left text-xs transition hover:border-olive hover:bg-lime/10"
+          >
+            <div className="font-semibold text-ink">Leela Thomas</div>
+            <div className="text-[11px] text-muted">Admin Console</div>
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-6 flex items-center justify-between text-sm">
+        <Link href="/forgot-password" className="font-semibold text-olive hover:underline">
+          Reset password
         </Link>
-        <Link href="/signup" className="font-semibold text-olive">
+        <Link href="/signup" className="font-semibold text-olive hover:underline">
           Create an account
         </Link>
-      </div>
-      <div className="mt-8 rounded-3xl border border-line bg-card p-4">
-        <p className="text-sm font-semibold">Sample profiles</p>
-        <div className="mt-3 grid gap-2">
-          <Button variant="ghost" onClick={() => enterDemo("donor", "Ananya Iyer", "ananya.iyer@example.com")}>
-            Continue as Ananya, donor
-          </Button>
-          <Button variant="ghost" onClick={() => enterDemo("recycler", "Priya Nair", "priya.nair@greencircuit.example")}>
-            Continue as Priya, recycler
-          </Button>
-          <Button variant="ghost" onClick={() => enterDemo("admin", "Leela Thomas", "leela.thomas@scrapo.example")}>
-            Continue as Leela, admin
-          </Button>
-        </div>
       </div>
     </div>
   );
@@ -118,71 +180,170 @@ export function LoginForm() {
 
 export function SignupForm() {
   const router = useRouter();
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [role, setRole] = useState<Role>("donor");
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const { signIn } = usePrototype();
 
-  function submit(event: FormEvent) {
+  const [name, setName] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [role, setRole] = useState<Role>("donor");
+  const [city, setCity] = useState("Bengaluru");
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(false);
+
+  async function submit(event: FormEvent) {
     event.preventDefault();
-    const next: Record<string, string> = {};
-    if (name.trim().length < 2) next.name = "Add the name you want on the board.";
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) next.email = "Enter an email address.";
-    if (password.length < 8) next.password = "Use at least 8 characters.";
-    setErrors(next);
-    if (Object.keys(next).length) return;
-    const params = new URLSearchParams({
-      status: "sent",
-      name: name.trim(),
-      email: email.trim(),
-      role,
-    });
-    router.push(`/verify-email?${params.toString()}`);
+    const nextErrors: Record<string, string> = {};
+    if (name.trim().length < 2) nextErrors.name = "Please enter your full name or organisation name.";
+    if (password.trim().length < 6) nextErrors.password = "Choose a password with at least 6 characters.";
+    if (role === "admin") nextErrors.role = "Admin accounts cannot be self-registered.";
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) return;
+
+    setLoading(true);
+    const safeRole = sanitizeSelfAssignedRole(role);
+    const displayName = name.trim();
+    const email = accountEmailFromName(displayName);
+
+    try {
+      // Prefer Admin bootstrap when available (sets profile server-side, blocks admin).
+      const bootstrap = await fetch("/api/auth/account", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: displayName,
+          password: password.trim(),
+          role: safeRole,
+          city: city.trim() || "Bengaluru",
+        }),
+      });
+      const bootstrapBody = await bootstrap.json();
+
+      if (bootstrap.ok && bootstrapBody.success && bootstrapBody.customToken) {
+        const signed = await signInWithFirebaseCustomToken(bootstrapBody.customToken as string);
+        if (!signed.success || !signed.user) {
+          setLoading(false);
+          setErrors({ name: signed.error || "Could not complete Firebase sign-in." });
+          return;
+        }
+        signIn({
+          id: signed.user.uid,
+          name: displayName,
+          email,
+          role: safeRole,
+          city: city.trim() || "Bengaluru",
+        });
+        setLoading(false);
+        router.push(safeRole === "admin" ? homeForRole(safeRole) : "/verify");
+        return;
+      }
+
+      // Browser Firebase Auth path when Admin SDK is not configured.
+      const res = await registerFirebaseEmailUser(
+        email,
+        password.trim(),
+        displayName,
+        safeRole,
+        city.trim() || "Bengaluru",
+      );
+      setLoading(false);
+      if (!res.success || !res.user) {
+        setErrors({
+          name:
+            bootstrapBody.code === "ADMIN_REQUIRED"
+              ? res.error || "Could not create account with Firebase Auth."
+              : bootstrapBody.error || res.error || "Could not create account.",
+        });
+        return;
+      }
+
+      signIn({
+        id: res.user.uid,
+        name: displayName,
+        email,
+        role: safeRole,
+        city: city.trim() || "Bengaluru",
+      });
+      router.push("/verify");
+    } catch {
+      setLoading(false);
+      setErrors({ name: "Network error. Please try again." });
+    }
   }
 
   return (
     <div>
-      <h1 className="text-4xl font-medium tracking-tight">Create an account</h1>
+      <h1 className="text-4xl font-extrabold tracking-tight">Create an account</h1>
       <p className="mt-3 text-sm leading-6 text-muted">
-        Admin access is a preview on the login screen. Recycler accounts in the real product would wait for license review.
+        Create a Firebase-authenticated Scrapo account. Your display name maps to a private auth email; admin cannot be self-assigned.
       </p>
+
       <form className="mt-8 space-y-4" onSubmit={submit} noValidate>
-        <Field label="Name" htmlFor="name" error={errors.name}>
-          <TextInput id="name" autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} />
-        </Field>
-        <Field label="Email" htmlFor="signup-email" error={errors.email}>
+        <Field label="Your Name" htmlFor="signup-name" error={errors.name}>
           <TextInput
-            id="signup-email"
-            type="email"
-            autoComplete="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
+            id="signup-name"
+            autoComplete="name"
+            placeholder="e.g. Darsh Kaushal or GreenCircuit"
+            value={name}
+            onChange={(e) => {
+              setName(e.target.value);
+              setErrors((prev) => ({ ...prev, name: "" }));
+            }}
           />
         </Field>
+
         <Field label="Password" htmlFor="signup-password" error={errors.password}>
-          <TextInput
-            id="signup-password"
-            type="password"
-            autoComplete="new-password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-          />
+          <div className="relative">
+            <TextInput
+              id="signup-password"
+              type={showPassword ? "text" : "password"}
+              autoComplete="new-password"
+              placeholder="At least 6 characters"
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                setErrors((prev) => ({ ...prev, password: "" }));
+              }}
+              className="pr-20"
+            />
+            <button
+              type="button"
+              className="absolute top-1/2 right-3 -translate-y-1/2 text-xs font-semibold text-olive hover:underline"
+              onClick={() => setShowPassword((v) => !v)}
+            >
+              {showPassword ? "Hide" : "Show"}
+            </button>
+          </div>
         </Field>
-        <Field label="I am joining as" htmlFor="signup-role">
-          <SelectInput id="signup-role" value={role} onChange={(event) => setRole(event.target.value as Role)}>
-            <option value="donor">A donor</option>
-            <option value="student">A student</option>
-            <option value="recycler">A recycler</option>
+
+        <Field label="I am joining as" htmlFor="signup-role" error={errors.role}>
+          <SelectInput
+            id="signup-role"
+            value={role}
+            onChange={(e) => setRole(e.target.value as Role)}
+          >
+            <option value="donor">Donor</option>
+            <option value="student">Student</option>
+            <option value="recycler">Recycler partner</option>
           </SelectInput>
         </Field>
-        <Button type="submit" className="w-full" size="lg">
-          Continue to verification
+
+        <Field label="City" htmlFor="signup-city">
+          <TextInput
+            id="signup-city"
+            value={city}
+            onChange={(e) => setCity(e.target.value)}
+            placeholder="Bengaluru"
+          />
+        </Field>
+
+        <Button type="submit" className="w-full" size="lg" disabled={loading}>
+          {loading ? "Creating account..." : "Create account"}
         </Button>
       </form>
-      <p className="mt-4 text-sm text-muted">
-        Already have a prototype session?{" "}
-        <Link href="/login" className="font-semibold text-olive">
+
+      <p className="mt-6 text-sm text-muted">
+        Already have an account?{" "}
+        <Link href="/login" className="font-semibold text-olive hover:underline">
           Log in
         </Link>
       </p>
@@ -191,57 +352,96 @@ export function SignupForm() {
 }
 
 export function ForgotPasswordForm() {
-  const [email, setEmail] = useState("");
+  const router = useRouter();
+  const [name, setName] = useState("");
+  const [newPassword, setNewPassword] = useState("");
   const [error, setError] = useState("");
-  const [sent, setSent] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  function submit(event: FormEvent) {
+  async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setError("Enter the email you would use for Scrapo.");
+    if (!name.trim()) {
+      setError("Please enter your account name.");
       return;
     }
-    setError("");
-    setSent(true);
-  }
+    if (newPassword.trim().length < 6) {
+      setError("New password must be at least 6 characters.");
+      return;
+    }
 
-  if (sent) {
-    return (
-      <div>
-        <h1 className="text-4xl font-medium tracking-tight">Check your inbox</h1>
-        <p className="mt-3 text-sm leading-6 text-muted">
-          In the live product, a reset link would go to <span className="font-semibold text-ink">{email}</span>. This prototype does not send email.
-        </p>
-        <Button href="/login" className="mt-8" variant="olive">
-          Back to log in
-        </Button>
-      </div>
-    );
+    setLoading(true);
+    setError("");
+
+    try {
+      const res = await fetch("/api/auth/account", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim(), newPassword: newPassword.trim() }),
+      });
+      const data = await res.json();
+      setLoading(false);
+
+      if (!res.ok || !data.success) {
+        setError(
+          data.error ||
+            "Could not update password. Firebase Admin credentials are required for server-side resets.",
+        );
+        return;
+      }
+
+      setSuccess(true);
+      setTimeout(() => {
+        router.push("/login");
+      }, 1200);
+    } catch {
+      setLoading(false);
+      setError("Network error. Please try again.");
+    }
   }
 
   return (
     <div>
-      <h1 className="text-4xl font-medium tracking-tight">Forgot password</h1>
+      <h1 className="text-4xl font-extrabold tracking-tight">Reset Password</h1>
       <p className="mt-3 text-sm leading-6 text-muted">
-        Tell us which email to use. No message leaves this browser.
+        Enter your account name and choose a new Firebase Auth password. Requires server Admin credentials.
       </p>
-      <form className="mt-8 space-y-4" onSubmit={submit} noValidate>
-        <Field label="Email" htmlFor="reset-email" error={error}>
+
+      {error ? (
+        <div className="mt-4 rounded-2xl border border-danger/30 bg-danger/10 p-3 text-xs font-semibold text-danger">
+          {error}
+        </div>
+      ) : null}
+
+      {success ? (
+        <div className="mt-4 rounded-2xl border border-lime/40 bg-lime/10 p-3 text-xs font-semibold text-olive">
+          Password updated. Redirecting to login...
+        </div>
+      ) : null}
+
+      <form className="mt-6 space-y-4" onSubmit={submit} noValidate>
+        <Field label="Account Name" htmlFor="reset-name">
           <TextInput
-            id="reset-email"
-            type="email"
-            autoComplete="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
+            id="reset-name"
+            placeholder="e.g. Darsh Kaushal"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
           />
         </Field>
-        <Button type="submit" className="w-full" size="lg">
-          Show the sent state
+        <Field label="New password" htmlFor="reset-password">
+          <TextInput
+            id="reset-password"
+            type="password"
+            autoComplete="new-password"
+            placeholder="At least 6 characters"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+          />
+        </Field>
+        <Button type="submit" className="w-full" size="lg" disabled={loading}>
+          {loading ? "Updating..." : "Update password"}
         </Button>
       </form>
-      <Link href="/login" className="mt-4 inline-block text-sm font-semibold text-olive">
-        Back to log in
-      </Link>
     </div>
   );
 }

@@ -4,9 +4,7 @@ import type { Database } from "@/lib/supabase/database.types";
 import { requireSupabasePublicEnv } from "@/lib/supabase/env";
 
 /**
- * Server client for a future Supabase project.
- * Not used by the prototype screens. Wire it from a Server Component
- * or a Route Handler when queries replace the files in lib/mock.
+ * Server client for Server Components.
  * Store roles in app_metadata. Do not trust user_metadata for access checks.
  */
 export async function createClient() {

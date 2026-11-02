@@ -5,23 +5,10 @@ import { PageSkeleton } from "@/components/ui/feedback";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
-export default function Page({
-  searchParams,
-}: {
-  searchParams: Promise<{ state?: string }>;
-}) {
+export default function Page() {
   return (
     <Suspense fallback={<PageSkeleton />}>
-      <DashboardGate searchParams={searchParams} />
+      <DashboardView />
     </Suspense>
   );
-}
-
-async function DashboardGate({
-  searchParams,
-}: {
-  searchParams: Promise<{ state?: string }>;
-}) {
-  const { state } = await searchParams;
-  return <DashboardView forceError={state === "error"} />;
 }

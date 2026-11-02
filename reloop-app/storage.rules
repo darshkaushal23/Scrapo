@@ -1,0 +1,11 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Default deny. Scrapo currently does not expose public Storage uploads for
+    // enrolment evidence or ownership documents (notes stay in Firestore/API).
+    // Enable object paths only after a dedicated Storage threat model and virus scan.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

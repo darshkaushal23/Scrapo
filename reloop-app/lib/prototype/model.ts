@@ -1,4 +1,11 @@
-import type { DemoProfile, PickupRecord, RewardEvent, Role } from "@/lib/types";
+import type {
+  CustodyEvent,
+  DemoProfile,
+  PickupRecord,
+  RewardEvent,
+  Role,
+  SanitisationRecord,
+} from "@/lib/types";
 
 export type InspectionNote = {
   notes: string;
@@ -19,6 +26,8 @@ export type PrototypeState = {
   drafts: PickupRecord[];
   inspections: Record<string, InspectionNote>;
   admin: AdminOverlay;
+  sanitisations: Record<string, SanitisationRecord>;
+  custodyEvents: Record<string, CustodyEvent[]>;
 };
 
 export const emptyAdmin = (): AdminOverlay => ({
